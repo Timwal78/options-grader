@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: my-options-grader
+    runtime: node
+    buildCommand: "npm install && npm run build"
+    startCommand: "node server/index.cjs"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Note: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and other API keys 
+      # should be added manually in the Render dashboard for security.
+      - key: PORT
+        value: 3001
