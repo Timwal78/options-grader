@@ -50,11 +50,14 @@ async function fetchOptionsChain(ticker, byokConfig = {}) {
 // ─── POLYGON.IO (PRIMARY — YOUR KEY) ────────────────────────────────────────
 async function fetchPolygon(ticker, apiKey) {
   try {
-    // Get underlying price
+    // Get underlying price + daily change
     const priceRes = await fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?apiKey=${apiKey}`);
     if (!priceRes.ok) throw new Error(`Polygon price request failed (HTTP ${priceRes.status})`);
     const priceData = await safeJson(priceRes);
-    const underlyingPrice = priceData.results?.[0]?.c || 0;
+    const prevBar = priceData.results?.[0] || {};
+    const underlyingPrice = prevBar.c || 0;
+    const prevClose = prevBar.o || underlyingPrice;
+    const underlyingChange = prevClose > 0 ? ((underlyingPrice - prevClose) / prevClose) * 100 : 0;
 
     // Get options chain snapshot
     const chainRes = await fetch(`https://api.polygon.io/v3/snapshot/options/${ticker}?apiKey=${apiKey}&limit=250&order=desc&sort=volume`);
@@ -86,13 +89,15 @@ async function fetchPolygon(ticker, apiKey) {
       vega: opt.greeks?.vega || 0,
       inTheMoney: opt.details?.contract_type === 'call'
         ? underlyingPrice > (opt.details?.strike_price || 0)
-        : underlyingPrice < (opt.details?.strike_price || 0)
+        : underlyingPrice < (opt.details?.strike_price || 0),
+      underlyingChange
     }));
 
     return {
       ticker: ticker.toUpperCase(),
       underlyingPrice,
-      historicalIV: estimateHistoricalIV(contracts),
+      underlyingChange,
+      historicalIV: estimateHistoricalIV(contracts, underlyingPrice),
       expirationDates: [...new Set(contracts.map(c => c.expiration))].sort(),
       contracts,
       source: apiKey === process.env.POLYGON_API_KEY ? 'Polygon.io (Server Key)' : 'Polygon.io (BYOK)',
@@ -126,6 +131,8 @@ async function fetchSchwab(ticker, accessToken) {
     const quoteData = await safeJson(quoteRes);
     const quote = quoteData[ticker] || {};
     const underlyingPrice = quote.quote?.lastPrice || quote.quote?.mark || 0;
+    const prevClose = quote.quote?.closePrice || underlyingPrice;
+    const underlyingChange = prevClose > 0 ? ((underlyingPrice - prevClose) / prevClose) * 100 : 0;
 
     // Get options chain
     const chainRes = await fetch(`https://api.schwabapi.com/marketdata/v1/chains?symbol=${ticker}&contractType=ALL&strikeCount=20&includeUnderlyingQuote=true&strategy=SINGLE`, { headers });
@@ -139,7 +146,7 @@ async function fetchSchwab(ticker, accessToken) {
     for (const [expDate, strikes] of Object.entries(callMap)) {
       for (const [strike, opts] of Object.entries(strikes)) {
         for (const opt of opts) {
-          contracts.push(normalizeSchwabContract(opt, 'call', underlyingPrice));
+          contracts.push(normalizeSchwabContract(opt, 'call', underlyingPrice, underlyingChange));
         }
       }
     }
@@ -149,14 +156,14 @@ async function fetchSchwab(ticker, accessToken) {
     for (const [expDate, strikes] of Object.entries(putMap)) {
       for (const [strike, opts] of Object.entries(strikes)) {
         for (const opt of opts) {
-          contracts.push(normalizeSchwabContract(opt, 'put', underlyingPrice));
+          contracts.push(normalizeSchwabContract(opt, 'put', underlyingPrice, underlyingChange));
         }
       }
     }
 
     return {
-      ticker: ticker.toUpperCase(), underlyingPrice,
-      historicalIV: chainData.volatility || estimateHistoricalIV(contracts),
+      ticker: ticker.toUpperCase(), underlyingPrice, underlyingChange,
+      historicalIV: chainData.volatility || estimateHistoricalIV(contracts, underlyingPrice),
       expirationDates: [...new Set(contracts.map(c => c.expiration))].sort(),
       contracts, source: 'Charles Schwab (BYOK)',
       timestamp: new Date().toISOString()
@@ -166,7 +173,7 @@ async function fetchSchwab(ticker, accessToken) {
   }
 }
 
-function normalizeSchwabContract(opt, type, underlyingPrice) {
+function normalizeSchwabContract(opt, type, underlyingPrice, underlyingChange = 0) {
   return {
     contractSymbol: opt.symbol || '',
     type,
@@ -183,7 +190,8 @@ function normalizeSchwabContract(opt, type, underlyingPrice) {
     gamma: opt.gamma || 0,
     theta: opt.theta || 0,
     vega: opt.vega || 0,
-    inTheMoney: opt.inTheMoney || false
+    inTheMoney: opt.inTheMoney || false,
+    underlyingChange
   };
 }
 
@@ -250,6 +258,8 @@ async function fetchYahoo(ticker) {
     const yf = await getYF();
     const quote = await yf.quote(ticker);
     const underlyingPrice = quote.regularMarketPrice;
+    const prevClose = quote.regularMarketPreviousClose || underlyingPrice;
+    const underlyingChange = prevClose > 0 ? ((underlyingPrice - prevClose) / prevClose) * 100 : 0;
 
     const options = await yf.options(ticker);
     if (!options || !options.options || options.options.length === 0) {
@@ -263,12 +273,12 @@ async function fetchYahoo(ticker) {
     if (options.options[0]) {
       if (options.options[0].calls) {
         for (const call of options.options[0].calls) {
-          allContracts.push(normalizeYahooContract(call, 'call', options.options[0].expirationDate, underlyingPrice));
+          allContracts.push(normalizeYahooContract(call, 'call', options.options[0].expirationDate, underlyingPrice, underlyingChange));
         }
       }
       if (options.options[0].puts) {
         for (const put of options.options[0].puts) {
-          allContracts.push(normalizeYahooContract(put, 'put', options.options[0].expirationDate, underlyingPrice));
+          allContracts.push(normalizeYahooContract(put, 'put', options.options[0].expirationDate, underlyingPrice, underlyingChange));
         }
       }
     }
@@ -279,15 +289,15 @@ async function fetchYahoo(ticker) {
         const expOptions = await yf.options(ticker, { date: expDate });
         if (expOptions?.options?.[0]) {
           const exp = expOptions.options[0];
-          if (exp.calls) exp.calls.forEach(c => allContracts.push(normalizeYahooContract(c, 'call', exp.expirationDate, underlyingPrice)));
-          if (exp.puts) exp.puts.forEach(p => allContracts.push(normalizeYahooContract(p, 'put', exp.expirationDate, underlyingPrice)));
+          if (exp.calls) exp.calls.forEach(c => allContracts.push(normalizeYahooContract(c, 'call', exp.expirationDate, underlyingPrice, underlyingChange)));
+          if (exp.puts) exp.puts.forEach(p => allContracts.push(normalizeYahooContract(p, 'put', exp.expirationDate, underlyingPrice, underlyingChange)));
         }
       } catch (e) { /* skip */ }
     }
 
     return {
-      ticker: ticker.toUpperCase(), underlyingPrice,
-      historicalIV: estimateHistoricalIV(allContracts),
+      ticker: ticker.toUpperCase(), underlyingPrice, underlyingChange,
+      historicalIV: estimateHistoricalIV(allContracts, underlyingPrice),
       expirationDates, contracts: allContracts,
       source: 'Yahoo Finance (Free)', timestamp: new Date().toISOString()
     };
@@ -296,7 +306,7 @@ async function fetchYahoo(ticker) {
   }
 }
 
-function normalizeYahooContract(raw, type, expirationDate, underlyingPrice) {
+function normalizeYahooContract(raw, type, expirationDate, underlyingPrice, underlyingChange = 0) {
   const dte = Math.max(0, Math.ceil((new Date(expirationDate) - new Date()) / 864e5));
   return {
     contractSymbol: raw.contractSymbol || '',
@@ -307,7 +317,8 @@ function normalizeYahooContract(raw, type, expirationDate, underlyingPrice) {
     delta: estimateDelta(raw, type, underlyingPrice),
     gamma: estimateGamma(raw, underlyingPrice),
     theta: estimateTheta(raw, dte), vega: estimateVega(raw, dte),
-    inTheMoney: raw.inTheMoney || false
+    inTheMoney: raw.inTheMoney || false,
+    underlyingChange
   };
 }
 
@@ -345,11 +356,35 @@ function estimateVega(raw, dte) {
   return price * 0.01 * Math.sqrt(dte / 30);
 }
 
-function estimateHistoricalIV(contracts) {
+/**
+ * Estimate historical IV using the MEDIAN of near-ATM contracts.
+ * ATM contracts are the most representative of IV since they have
+ * the highest vega and most trading activity.
+ */
+function estimateHistoricalIV(contracts, underlyingPrice) {
   if (!contracts || contracts.length === 0) return 0.30;
-  const ivs = contracts.filter(c => c.impliedVolatility > 0).map(c => c.impliedVolatility);
-  if (ivs.length === 0) return 0.30;
-  return ivs.reduce((a, b) => a + b, 0) / ivs.length;
+
+  // Filter to contracts with valid IV
+  let ivCandidates = contracts.filter(c => c.impliedVolatility > 0);
+  if (ivCandidates.length === 0) return 0.30;
+
+  // Prefer near-ATM contracts (within 5% of underlying price) for the IV estimate
+  if (underlyingPrice > 0) {
+    const atmContracts = ivCandidates.filter(c => {
+      const moneyness = Math.abs(c.strike - underlyingPrice) / underlyingPrice;
+      return moneyness < 0.05;
+    });
+    if (atmContracts.length >= 3) {
+      ivCandidates = atmContracts; // Use ATM subset if we have enough
+    }
+  }
+
+  // Return MEDIAN instead of mean (resistant to outliers from far OTM/ITM skew)
+  const sorted = ivCandidates.map(c => c.impliedVolatility).sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
 }
 
 module.exports = { fetchOptionsChain };
