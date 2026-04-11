@@ -14,11 +14,23 @@ if (!fs.existsSync(path.dirname(SUBS_FILE))) {
   fs.mkdirSync(path.dirname(SUBS_FILE), { recursive: true });
 }
 
+// Admin whitelist — owner gets elite for life, no Stripe needed
+const ADMIN_IDS = new Set([
+  'admin',
+  'scriptmasterlabs',
+  'timwal78',
+  'owner',
+]);
+
 /**
  * Get subscription tier for a user (or IP fallback)
+ * Admin IDs always return 'elite' — owner never gets charged.
  */
 function getTier(userId) {
   try {
+    // Admin override — owner is always elite
+    if (userId && ADMIN_IDS.has(userId.toLowerCase())) return 'elite';
+
     if (!fs.existsSync(SUBS_FILE)) return 'free';
     const subs = JSON.parse(fs.readFileSync(SUBS_FILE));
     return subs[userId] || 'free';
