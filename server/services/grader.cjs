@@ -38,12 +38,12 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
   };
 
   const weights = {
-    greeks: 0.20,
-    riskReward: 0.20,
-    ivPercentile: 0.15,
-    probability: 0.20,
-    liquidity: 0.15,
-    technical: 0.10
+    greeks: parseFloat(process.env.WEIGHT_GREEKS || '0.20'),
+    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.20'),
+    ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.15'),
+    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.20'),
+    liquidity: parseFloat(process.env.WEIGHT_LIQUIDITY || '0.15'),
+    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.10')
   };
 
   let totalScore = 0;
