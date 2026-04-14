@@ -47,8 +47,8 @@ async function refreshDiscovery() {
 
     const uniqueTickers = [...new Set(allMovers.map(m => m.symbol))];
 
-    // Prioritize Affordable under $100
-    const priorityTickers = allMovers.filter(m => m.regularMarketPrice < 100)
+    // Prioritize Affordable under $500 (widened from $100 to include major tech)
+    const priorityTickers = allMovers.filter(m => m.regularMarketPrice < 500)
                                     .map(m => m.symbol)
                                     .concat(uniqueTickers)
                                     .slice(0, 100);
