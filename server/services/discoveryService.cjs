@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 const { fetchOptionsChain } = require('./optionsData.cjs');
 const { gradeOptionsChain } = require('./grader.cjs');
+const { sendOptionsAlert, sendBatchSummary, isEnabled } = require('./discordAlerts.cjs');
 
 let hotSetups = [];
 
@@ -57,7 +58,8 @@ async function refreshDiscovery() {
     const megaCaps = ['SPY', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META', 'QQQ'];
     let megaCapCount = 0;
 
-    console.log(`[DISCOVERY] Siphoning ${priorityTickers.length} movers for setups...`);
+    const discordEnabled = isEnabled();
+    console.log(`[DISCOVERY] Siphoning ${priorityTickers.length} movers for setups... | Discord: ${discordEnabled ? 'ON' : 'OFF'}`);
 
     for (const symbol of [...new Set(priorityTickers)]) {
       try {
@@ -74,6 +76,24 @@ async function refreshDiscovery() {
         
         if (setups.length > 0) {
            console.log(`[DISCOVERY] Found setups for ${symbol}. Top Grade: ${setups[0].grade}`);
+           // Fire Discord alerts for qualifying setups
+           for (const s of setups.slice(0, 3)) {
+             const alertPayload = {
+               ticker: symbol,
+               price: chain.underlyingPrice,
+               change: changeMap[symbol] || 0,
+               contract: s.contractSymbol,
+               strike: s.strike,
+               side: s.type.toUpperCase(),
+               expiration: s.expiration,
+               score: s.totalScore,
+               grade: s.grade,
+               vol: s.volume,
+               oi: s.openInterest,
+               source: chain.source || 'Yahoo Finance'
+             };
+             sendOptionsAlert(alertPayload).catch(() => {});
+           }
         }
 
         setups.forEach(s => {
@@ -111,6 +131,8 @@ async function refreshDiscovery() {
       } catch (e) { /* skip failed ticker silently */ }
     }
     console.log(`[DISCOVERY] Discovery cycle finished. Buffer size: ${hotSetups.length}`);
+    // Send batch summary to Discord
+    sendBatchSummary(hotSetups).catch(() => {});
   } catch (err) {
     console.error('[DISCOVERY] Engine error:', err.message);
   }
