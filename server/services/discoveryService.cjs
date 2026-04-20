@@ -71,8 +71,13 @@ async function refreshDiscovery() {
         if (!chain || !chain.contracts) continue;
 
         const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
+        // ── ZERO-FAKE: Only C+ (67+) and above reach the tape or Discord ──
+        const MINIMUM_SCORE = 67; // C+ floor — D and below are rejected
         const setups = (graded || []).filter(c => {
-          if (c.totalScore < 50) return false; // Lower threshold to allow ITM setups if they are exceptional
+          if (c.totalScore < MINIMUM_SCORE) return false;
+          // Directional filter: Puts must be OTM (Strike < Price), Calls must be OTM (Strike > Price)
+          if (c.type === 'put'  && c.strike >= chain.underlyingPrice) return false;
+          if (c.type === 'call' && c.strike <= chain.underlyingPrice) return false;
           return true;
         });
 
