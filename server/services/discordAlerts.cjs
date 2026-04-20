@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_OPTIONS || '';
-const MIN_GRADE = process.env.DISCORD_ALERT_MIN_GRADE || 'B';
+const MIN_GRADE = process.env.DISCORD_ALERT_MIN_GRADE || 'C+';
 
 // Grade hierarchy for comparison
 const GRADE_ORDER = { 'S': 0, 'A+': 1, 'A': 2, 'B+': 3, 'B': 4, 'C+': 5, 'C': 6, 'D': 7, 'F': 8 };

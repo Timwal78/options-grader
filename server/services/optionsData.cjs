@@ -7,6 +7,21 @@ const { loadTokens } = require('./schwabService.cjs');
 const fs = require('fs');
 const path = require('path');
 
+// ── Polygon Rate Guard: Free tier = 5 req/min (13s minimum gap) ──────────────
+// Shared across all callers in this process. Both price + chain requests count.
+let _polygonLastCall = 0;
+const _POLYGON_MIN_MS = 13000; // 13 seconds
+
+async function _polygonRateLimit() {
+  const elapsed = Date.now() - _polygonLastCall;
+  if (elapsed < _POLYGON_MIN_MS) {
+    const wait = _POLYGON_MIN_MS - elapsed;
+    console.log(`[POLYGON RATE GUARD] Waiting ${(wait / 1000).toFixed(1)}s before next call...`);
+    await new Promise(r => setTimeout(r, wait));
+  }
+  _polygonLastCall = Date.now();
+}
+
 /**
  * Fetch options chain for a ticker
  * Uses server-side Polygon key by default, BYOK overrides, Yahoo as fallback
@@ -51,6 +66,7 @@ async function fetchOptionsChain(ticker, byokConfig = {}) {
 async function fetchPolygon(ticker, apiKey) {
   try {
     // Get underlying price + daily change
+    await _polygonRateLimit();
     const priceRes = await fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?apiKey=${apiKey}`);
     if (!priceRes.ok) throw new Error(`Polygon price request failed (HTTP ${priceRes.status})`);
     const priceData = await safeJson(priceRes);
@@ -60,6 +76,7 @@ async function fetchPolygon(ticker, apiKey) {
     const underlyingChange = prevClose > 0 ? ((underlyingPrice - prevClose) / prevClose) * 100 : 0;
 
     // Get options chain snapshot
+    await _polygonRateLimit();
     const chainRes = await fetch(`https://api.polygon.io/v3/snapshot/options/${ticker}?apiKey=${apiKey}&limit=250&order=desc&sort=volume`);
     if (!chainRes.ok) throw new Error(`Polygon snapshot request failed (HTTP ${chainRes.status})`);
     const chainData = await safeJson(chainRes);

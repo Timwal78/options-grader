@@ -201,9 +201,6 @@ function scoreRiskReward(c, underlyingPrice) {
   else if (premiumRatio > 0.10) score -= 8;
   else if (premiumRatio < 0.02) score += 8;  // Cheap and efficient
 
-  // Bonus: already ITM with intrinsic value protection
-  if (c.inTheMoney && premiumRatio < 0.08) score += 5;
-
   return Math.min(100, Math.max(0, score));
 }
 
@@ -313,17 +310,18 @@ function scoreMoneynessFallback(c, underlyingPrice) {
   const isCall = (c.type || '').toLowerCase() === 'call';
   const dte = c.dte || 30;
 
-  const isITM = isCall ? underlyingPrice > strike : underlyingPrice < strike;
+  const isOTM = isCall ? underlyingPrice < strike : underlyingPrice > strike;
   const moneyness = Math.abs(underlyingPrice - strike) / underlyingPrice;
 
-  if (isITM) {
-    score += 15;
-    if (moneyness < 0.05) score += 10;
-  } else {
-    if (moneyness < 0.03) score += 15;
-    else if (moneyness < 0.07) score += 5;
+  // Zero-Fake Policy: Reward OTM setups (price has room to move in the right direction)
+  if (isOTM) {
+    if (moneyness < 0.03) score += 20; // ATM-adjacent OTM — best setup
+    else if (moneyness < 0.07) score += 10;
     else if (moneyness < 0.15) score -= 5;
-    else score -= 20;
+    else score -= 20; // Far OTM lottery ticket
+  } else {
+    // ITM fallback — not a setup, penalize
+    score -= 15;
   }
 
   if (dte >= 14 && dte <= 60) score += 15;
