@@ -71,7 +71,10 @@ async function refreshDiscovery() {
         if (!chain || !chain.contracts) continue;
 
         const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
-        const setups = (graded || []).filter(c => c.totalScore >= 60);
+        const setups = (graded || []).filter(c => {
+          if (c.totalScore < 50) return false; // Lower threshold to allow ITM setups if they are exceptional
+          return true;
+        });
 
         
         if (setups.length > 0) {
@@ -88,6 +91,7 @@ async function refreshDiscovery() {
                expiration: s.expiration,
                score: s.totalScore,
                grade: s.grade,
+               moneyness: s.moneyness || (s.inTheMoney ? 'ITM' : 'OTM'),
                vol: s.volume,
                oi: s.openInterest,
                source: chain.source || 'Yahoo Finance'

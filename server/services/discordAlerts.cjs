@@ -58,26 +58,26 @@ async function sendOptionsAlert(setup) {
 
   const sideEmoji = setup.side === 'CALL' ? '🟢' : '🔴';
   const gradeEmoji = setup.grade === 'S' ? '💎' : setup.grade.startsWith('A') ? '🔥' : '⚡';
-  const changeStr = setup.change >= 0 ? `+${setup.change.toFixed(2)}%` : `${setup.change.toFixed(2)}%`;
-  const changeColor = setup.change >= 0 ? 0x22c55e : 0xef4444;
+  const change = setup.change || 0;
+  const changeStr = change >= 0 ? `+${change.toFixed(2)}%` : `${change.toFixed(2)}%`;
+  const changeArrow = change >= 0 ? '📈' : '📉';
+
+  // Color reflects TRADE SIDE, not price direction
+  // CALL = green (bullish), PUT = red (bearish)
+  const sideColor = setup.side === 'CALL' ? 0x22c55e : 0xef4444;
 
   const embed = {
     embeds: [{
-      title: `${gradeEmoji} ${setup.ticker} — Grade ${setup.grade} ${setup.side}`,
-      color: changeColor,
+      title: `${sideEmoji} ${gradeEmoji} SML OP-GRADER: ${setup.ticker} (${setup.side})`,
+      color: sideColor,
       fields: [
-        { name: '💰 Price', value: `$${setup.price?.toFixed(2) || 'N/A'}`, inline: true },
-        { name: '📊 Change', value: changeStr, inline: true },
-        { name: `${sideEmoji} Side`, value: setup.side, inline: true },
-        { name: '🎯 Strike', value: `$${setup.strike}`, inline: true },
-        { name: '📅 Expiration', value: setup.expiration || 'N/A', inline: true },
-        { name: '🏆 Score', value: `${setup.score}/100`, inline: true },
-        { name: '📈 Volume', value: `${(setup.vol || 0).toLocaleString()}`, inline: true },
-        { name: '📋 Open Interest', value: `${(setup.oi || 0).toLocaleString()}`, inline: true },
-        { name: '🔌 Source', value: setup.source || 'Polygon', inline: true },
+        { name: '🧠 INTEL BREADCRUMB', value: `**Grade**: \`${setup.grade}\` [**${setup.moneyness || 'N/A'}**] | **Score**: \`${setup.score}/100\``, inline: false },
+        { name: '📊 PRIMARY PROJECTION', value: `**Strike**: \`$${setup.strike}\`\n**Exp**: \`${setup.expiration || 'N/A'}\``, inline: true },
+        { name: '⏳ TIME HORIZON', value: `**Price**: \`$${setup.price?.toFixed(2) || 'N/A'}\`\n${changeArrow} **Change**: \`${changeStr}\``, inline: true },
+        { name: '⚡ TRADE DIRECTIVES', value: `**Volume**: \`${(setup.vol || 0).toLocaleString()}\`\n**OI**: \`${(setup.oi || 0).toLocaleString()}\``, inline: false },
       ],
       footer: {
-        text: 'My Options Grader • ScriptMasterLabs™'
+        text: 'My Options Grader • Institutional Edition • ScriptMasterLabs™'
       },
       timestamp: new Date().toISOString()
     }]

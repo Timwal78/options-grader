@@ -34,7 +34,7 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
     ivPercentile: scoreIV(contract, historicalIV, chainStats),
     probability: scoreProbability(contract, underlyingPrice),
     liquidity: scoreLiquidity(contract),
-    technical: scoreTechnical(contract)
+    technical: scoreTechnical(contract, underlyingPrice)
   };
 
   const weights = {
@@ -58,7 +58,8 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
     scores,
     totalScore,
     grade: getLetterGrade(totalScore),
-    gradeColor: getGradeColor(totalScore)
+    gradeColor: getGradeColor(totalScore),
+    moneyness: contract.inTheMoney ? 'ITM' : 'OTM'
   };
 }
 
@@ -88,8 +89,10 @@ function scoreGreeks(c) {
   const theta = c.theta || 0;
   const gamma = c.gamma || 0;
   const vega = c.vega || 0;
-  const dte = c.dte || 30;
-  const premium = c.lastPrice || c.ask || 1;
+  const dte = c.dte;
+  const premium = c.lastPrice || c.ask;
+
+  if (!dte || !premium) return 0; // Law 1: Zero-Fake
 
   // ── Delta sweet spot ──
   // 0.30-0.50 ideal for directional plays (most retail use case)
@@ -108,6 +111,9 @@ function scoreGreeks(c) {
     else if (thetaPctPerDay < 5.0) score += 0;   // 2-5% — caution
     else if (thetaPctPerDay < 10.0) score -= 10; // 5-10% — aggressive decay
     else score -= 20;                             // 10%+ — contract is melting
+  } else {
+    // Law 1: No data = no score
+    return 0;
   }
 
   // ── Gamma: DTE-aware scoring ──
@@ -142,13 +148,16 @@ function scoreGreeks(c) {
 // Now uses IV-adjusted expected move instead of flat 10%
 function scoreRiskReward(c, underlyingPrice) {
   let score = 50;
-  const premium = c.lastPrice || c.ask || 0;
-  if (premium <= 0 || underlyingPrice <= 0) return 30;
+  const premium = c.lastPrice || c.ask;
+  if (!premium || !underlyingPrice || premium <= 0 || underlyingPrice <= 0) return 0;
 
-  const strike = c.strike || 0;
+  const strike = c.strike;
   const isCall = (c.type || '').toLowerCase() === 'call';
-  const dte = c.dte || 30;
-  const iv = c.impliedVolatility || 0.30; // Default 30% if missing
+  const dte = c.dte;
+  const iv = c.impliedVolatility;
+
+  // Law 1: Zero-Fake
+  if (!strike || !dte || !iv) return 0;
 
   // IV-adjusted expected move: price * IV * sqrt(DTE/365)
   // This gives us a statistically-grounded 1-sigma move estimate
@@ -168,8 +177,14 @@ function scoreRiskReward(c, underlyingPrice) {
   }
 
   if (potentialGain <= 0) {
-    // Even a 1-sigma favorable move doesn't make this profitable
-    score -= 20;
+    // If it's a high-quality OTM setup, don't penalize as heavily as a "lottery ticket"
+    // Use Delta as a proxy for "tradeability"
+    const absDelta = Math.abs(c.delta || 0);
+    if (absDelta > 0.35) {
+       score -= 5; // Close to ATM, still a good setup
+    } else {
+       score -= 20; // Pure lottery / far OTM
+    }
   } else {
     const ratio = potentialGain / maxLoss;
     if (ratio >= 5) score += 35;       // 5:1+ — exceptional
@@ -197,8 +212,8 @@ function scoreRiskReward(c, underlyingPrice) {
 // relative to ALL other contracts in the chain?
 function scoreIV(c, historicalIV, chainStats) {
   let score = 50;
-  const iv = c.impliedVolatility || 0;
-  if (iv <= 0) return 50; // Can't evaluate
+  const iv = c.impliedVolatility;
+  if (!iv || iv <= 0) return 0; // Law 1: Zero-Fake
 
   let ivRank = 50; // Default neutral
 
@@ -237,15 +252,15 @@ function scoreIV(c, historicalIV, chainStats) {
 // Estimates the probability that the contract expires with value > premium paid
 function scoreProbability(c, underlyingPrice) {
   let score = 50;
-  const strike = c.strike || 0;
-  const premium = c.lastPrice || c.ask || 0;
+  const strike = c.strike;
+  const premium = c.lastPrice || c.ask;
   const isCall = (c.type || '').toLowerCase() === 'call';
-  const dte = c.dte || 30;
-  const iv = c.impliedVolatility || 0.30;
+  const dte = c.dte;
+  const iv = c.impliedVolatility;
 
-  if (underlyingPrice <= 0 || strike <= 0 || dte <= 0 || iv <= 0) {
-    // Can't compute — fall back to moneyness-only scoring
-    return scoreMoneynessFallback(c, underlyingPrice);
+  if (!underlyingPrice || !strike || !dte || !iv || !premium) {
+    // Law 1: Zero-Fake — No data, no score.
+    return 0;
   }
 
   // Breakeven for buyer
@@ -355,7 +370,7 @@ function scoreLiquidity(c) {
 
 // ─── FACTOR 6: TECHNICAL / MOMENTUM (10%) ───────────────────────────────────
 // v2: Replaces hardcoded 65 with actual momentum signal from the underlying
-function scoreTechnical(c) {
+function scoreTechnical(c, underlyingPrice) {
   let score = 50;
 
   // Use the underlying's daily % change if available
@@ -379,7 +394,26 @@ function scoreTechnical(c) {
   }
 
   // Bonus: ITM confirmation (price action already supports your thesis)
-  if (c.inTheMoney) score += 10;
+  // v2.1: Institutional Setup Hardening
+  // We prioritize OTM "Setups" for Discovery alerts.
+  // Bearish Case: We want Puts where Strike < Price (Price has ROOM TO DROP).
+  // Bullish Case: We want Calls where Strike > Price (Price has ROOM TO RISE).
+  if (isCall) {
+    if (c.strike < underlyingPrice) {
+      score -= 500; // Aggressive Penalty: ITM Calls are NOT "Setups"
+    } else if (c.inTheMoney) {
+      score += 10;
+    }
+  } else {
+    // Puts
+    if (c.strike > underlyingPrice) {
+      score -= 500; // Aggressive Penalty: ITM Puts are NOT "Setups" (Strike > Price is ITM)
+    } else {
+      // OTM Put: This is a Bearish Setup (Price > Strike)
+      // We want to reward the setup alignment
+      if (change < 0) score += 30; // Reward momentum alignment for setups
+    }
+  }
 
   return Math.min(100, Math.max(0, score));
 }
