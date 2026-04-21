@@ -5,7 +5,8 @@
  * are severely penalized (Score < 60) via High-IV penalty.
  */
 const { gradeContract } = require('./grader.cjs');
-require('dotenv').config({ path: '../../.env' });
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 console.log('═══════════════════════════════════════════════════════════');
 console.log('  FORENSIC SCORING AUDIT — SML Options Grader Hardened');

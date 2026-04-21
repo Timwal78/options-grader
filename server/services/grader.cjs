@@ -105,20 +105,23 @@ function scoreGreeks(c) {
 
   // Delta: continuous (Target sweet spot)
   const targetDelta = parseFloat(process.env.GREEKS_DELTA_TARGET || '0.40');
+  const deltaScoreMax = parseFloat(process.env.GREEKS_DELTA_SCORE_MAX || '45');
   const deltaDist = Math.abs(absDelta - targetDelta);
-  score += interpolate(deltaDist, targetDelta, 0.0, 0, 40);
+  score += interpolate(deltaDist, targetDelta, 0.0, 0, deltaScoreMax);
 
   // Theta Decay: Lower is better (Zero-Fake: return 0 if no theta)
   const dailyTheta = Math.abs(theta) / premium;
   const thetaMax = parseFloat(process.env.GREEKS_THETA_MAX || '0.05');
   const thetaMin = parseFloat(process.env.GREEKS_THETA_MIN || '0.005');
-  score += interpolate(dailyTheta, thetaMax, thetaMin, 0, 30);
+  const thetaScoreMax = parseFloat(process.env.GREEKS_THETA_SCORE_MAX || '30');
+  score += interpolate(dailyTheta, thetaMax, thetaMin, 0, thetaScoreMax);
 
   // Vol Stability: Preferred lower IV for buys (No base/padding)
   const iv = c.impliedVolatility || 0;
   const ivMax = parseFloat(process.env.GREEKS_IV_MAX || '1.0');
   const ivMin = parseFloat(process.env.GREEKS_IV_MIN || '0.20');
-  score += interpolate(iv, ivMax, ivMin, 0, 30);
+  const ivScoreMax = parseFloat(process.env.GREEKS_IV_SCORE_MAX || '25');
+  score += interpolate(iv, ivMax, ivMin, 0, ivScoreMax);
 
   return Math.round(score);
 }
@@ -132,24 +135,27 @@ function scoreRiskReward(c, underlyingPrice) {
   if (!premium || !underlyingPrice || !iv || !dte || !strike) return 0;
 
   const isCall = (c.type || '').toLowerCase() === 'call';
-  // institutional expected move: 1.5 sigma
-  const expectedMove = underlyingPrice * iv * Math.sqrt(dte / 365) * 1.5;
+  // institutional expected move: configurable sigma
+  const sigmaMult = parseFloat(process.env.RR_SIGMA_MULT || '1.5');
+  const expectedMove = underlyingPrice * iv * Math.sqrt(dte / 365) * sigmaMult;
   const targetPrice = isCall ? underlyingPrice + expectedMove : underlyingPrice - expectedMove;
   
   const potentialGain = isCall ? Math.max(0, targetPrice - strike) - premium : Math.max(0, strike - targetPrice) - premium;
   let ratio = Math.max(0, potentialGain / premium);
 
-  // institutional logic: penalize high IV "lotto" setups
+  // institutional logic: penalize high IV "lotto" setups aggressively (Cubic decay)
   const ivPenaltyThreshold = parseFloat(process.env.RR_IV_PENALTY_THRESHOLD || '0.50');
   if (iv > ivPenaltyThreshold) {
-    const penaltyMult = ivPenaltyThreshold / iv;
+    const penaltyMult = Math.pow(ivPenaltyThreshold / iv, 3); // Institutional cubic penalty
     ratio *= penaltyMult;
   }
 
   const minRatio = parseFloat(process.env.RR_RATIO_MIN || '0.5');
-  const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '2.0');
+  const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '2.5');
+  const rrScoreMin = parseFloat(process.env.RR_SCORE_MIN || '0');
+  const rrScoreMax = parseFloat(process.env.RR_SCORE_MAX || '100');
 
-  return Math.round(interpolate(ratio, minRatio, maxRatio, 0, 100));
+  return Math.round(interpolate(ratio, minRatio, maxRatio, rrScoreMin, rrScoreMax));
 }
 
 // ─── FACTOR 3: IV PERCENTILE (10%) ──────────────────────────────────────────
@@ -167,9 +173,11 @@ function scoreIV(c, historicalIV, chainStats) {
   
   const minIV = parseFloat(process.env.IV_PCT_MIN || '0');
   const maxIV = parseFloat(process.env.IV_PCT_MAX || '100');
+  const ivPctScoreMin = parseFloat(process.env.IV_PCT_SCORE_MIN || '0');
+  const ivPctScoreMax = parseFloat(process.env.IV_PCT_SCORE_MAX || '100');
 
   // institutional logic: buy low IV, sell high IV
-  return Math.round(interpolate(ivRank, maxIV, minIV, 0, 100));
+  return Math.round(interpolate(ivRank, maxIV, minIV, ivPctScoreMin, ivPctScoreMax));
 }
 
 // ─── FACTOR 4: PROBABILITY (10%) ──────────────────────────────────
@@ -188,12 +196,22 @@ function scoreProbability(c, underlyingPrice) {
 
   const minProb = parseFloat(process.env.PROB_MIN || '0.10');
   const maxProb = parseFloat(process.env.PROB_MAX || '0.40');
+  const scoreBaseMin = parseFloat(process.env.PROB_SCORE_BASE_MIN || '35');
+  const scoreBaseMax = parseFloat(process.env.PROB_SCORE_BASE_MAX || '65');
+  
   const dteMin = parseFloat(process.env.PROB_DTE_MIN || '3');
   const dteMax = parseFloat(process.env.PROB_DTE_MAX || '21');
+  const scoreDteMin = parseFloat(process.env.PROB_SCORE_DTE_MIN || '5');
+  const scoreDteMax = parseFloat(process.env.PROB_SCORE_DTE_MAX || '35');
 
-  // Reward realistic OTM probabilities (top scores starting at 40%+)
-  let score = interpolate(probProfit, minProb, maxProb, 35, 65);
-  score += interpolate(dte, dteMin, dteMax, 5, 35) * (dte > 60 ? interpolate(dte, 60, 180, 1.0, 0.2) : 1.0);
+  const dteDecayStart = parseFloat(process.env.PROB_DTE_DECAY_START || '60');
+  const dteDecayEnd = parseFloat(process.env.PROB_DTE_DECAY_END || '180');
+  const dteDecayValStart = parseFloat(process.env.PROB_DTE_DECAY_VAL_START || '1.0');
+  const dteDecayValEnd = parseFloat(process.env.PROB_DTE_DECAY_VAL_END || '0.2');
+
+  // Reward realistic OTM probabilities
+  let score = interpolate(probProfit, minProb, maxProb, scoreBaseMin, scoreBaseMax);
+  score += interpolate(dte, dteMin, dteMax, scoreDteMin, scoreDteMax) * (dte > dteDecayStart ? interpolate(dte, dteDecayStart, dteDecayEnd, dteDecayValStart, dteDecayValEnd) : 1.0);
 
   return Math.round(Math.min(100, Math.max(0, score)));
 }
@@ -211,10 +229,15 @@ function scoreLiquidity(c) {
   const minSpread = parseFloat(process.env.LIQ_SPREAD_MIN || '0.01');
   const minVol = parseFloat(process.env.LIQ_VOL_MIN || '10');
   const maxVol = parseFloat(process.env.LIQ_VOL_MAX || '2000');
+  
+  const spreadScoreMin = parseFloat(process.env.LIQ_SPREAD_SCORE_MIN || '20');
+  const spreadScoreMax = parseFloat(process.env.LIQ_SPREAD_SCORE_MAX || '60');
+  const volScoreMin = parseFloat(process.env.LIQ_VOL_SCORE_MIN || '0');
+  const volScoreMax = parseFloat(process.env.LIQ_VOL_SCORE_MAX || '40');
 
   let score = 0;
-  score += interpolate(spread, maxSpread, minSpread, 20, 60);
-  score += interpolate(volume, minVol, maxVol, 0, 40);
+  score += interpolate(spread, maxSpread, minSpread, spreadScoreMin, spreadScoreMax);
+  score += interpolate(volume, minVol, maxVol, volScoreMin, volScoreMax);
 
   return Math.round(score);
 }
@@ -225,28 +248,35 @@ function scoreTechnical(c, underlyingPrice) {
   const isCall = (c.type || '').toLowerCase() === 'call';
   const strike = c.strike || 0;
 
+  const itmThresholdUp = parseFloat(process.env.TECH_ITM_THRESHOLD_UP || '0.98');
+  const itmThresholdDown = parseFloat(process.env.TECH_ITM_THRESHOLD_DOWN || '1.02');
+
   // Zero-Fake: Data integrity check (Critical fields required for any signal)
   if (!underlyingPrice || !strike || !c.dte || !(c.lastPrice || c.ask)) return 0;
 
   // Deep ITM Penalty (Swing Setup Filter)
-  if (isCall && strike < underlyingPrice * 0.98) return 0;
-  if (!isCall && strike > underlyingPrice * 1.02) return 0;
+  if (isCall && strike < underlyingPrice * itmThresholdUp) return 0;
+  if (!isCall && strike > underlyingPrice * itmThresholdDown) return 0;
 
   const distMax = parseFloat(process.env.TECH_DIST_MAX || '0.12');
   const distMin = parseFloat(process.env.TECH_DIST_MIN || '0.005');
   const changeMin = parseFloat(process.env.TECH_CHANGE_MIN || '-0.5');
   const changeMax = parseFloat(process.env.TECH_CHANGE_MAX || '2.5');
+  
+  const setupScoreMin = parseFloat(process.env.TECH_SETUP_SCORE_MIN || '0');
+  const setupScoreMax = parseFloat(process.env.TECH_SETUP_SCORE_MAX || '60');
+  const momentumScoreMax = parseFloat(process.env.TECH_MOMENTUM_SCORE_MAX || '40');
 
   const distPct = Math.abs(strike - underlyingPrice) / underlyingPrice;
-  // Institutional continuous setup: No base (0-60)
-  const setupBase = interpolate(distPct, distMax, distMin, 0, 60);
+  // Institutional continuous setup: No base (configurable via setupScoreMax)
+  const setupBase = interpolate(distPct, distMax, distMin, setupScoreMin, setupScoreMax);
 
   // Momentum Confirmation multiplier [0.0 - 1.0]
   const momentumMult = isCall 
     ? interpolate(change, changeMin, changeMax, 0.0, 1.0) 
     : interpolate(change, -changeMin, -changeMax, 0.0, 1.0);
 
-  return Math.round(setupBase + (40 * momentumMult));
+  return Math.round(setupBase + (momentumScoreMax * momentumMult));
 }
 
 function gradeOptionsChain(chain, underlyingPrice, historicalIV) {
