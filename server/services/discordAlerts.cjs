@@ -62,22 +62,21 @@ async function sendOptionsAlert(setup) {
   const changeStr = change >= 0 ? `+${change.toFixed(2)}%` : `${change.toFixed(2)}%`;
   const changeArrow = change >= 0 ? '📈' : '📉';
 
-  // Color reflects TRADE SIDE, not price direction
-  // CALL = green (bullish), PUT = red (bearish)
-  const sideColor = setup.side === 'CALL' ? 0x22c55e : 0xef4444;
+  // Color reflects GRADE quality, not just side, to show "High Fidelity"
+  const embedColor = setup.gradeColor ? parseInt(setup.gradeColor.replace('#', ''), 16) : (setup.side === 'CALL' ? 0x22c55e : 0xef4444);
 
   const embed = {
     embeds: [{
-      title: `${sideEmoji} ${gradeEmoji} SML OP-GRADER: ${setup.ticker} (${setup.side})`,
-      color: sideColor,
+      title: `${sideEmoji} ${gradeEmoji} SML INSTITUTIONAL INTEL: ${setup.ticker} (${setup.side})`,
+      color: embedColor,
       fields: [
-        { name: '🧠 INTEL BREADCRUMB', value: `**Grade**: \`${setup.grade}\` [**${setup.moneyness || 'N/A'}**] | **Score**: \`${setup.score}/100\``, inline: false },
-        { name: '📊 PRIMARY PROJECTION', value: `**Strike**: \`$${setup.strike}\`\n**Exp**: \`${setup.expiration || 'N/A'}\``, inline: true },
-        { name: '⏳ TIME HORIZON', value: `**Price**: \`$${setup.price?.toFixed(2) || 'N/A'}\`\n${changeArrow} **Change**: \`${changeStr}\``, inline: true },
-        { name: '⚡ TRADE DIRECTIVES', value: `**Volume**: \`${(setup.vol || 0).toLocaleString()}\`\n**OI**: \`${(setup.oi || 0).toLocaleString()}\``, inline: false },
+        { name: '🏛️ SIGNAL QUALITY', value: `**Grade**: \`${setup.grade}\` [**${setup.moneyness || 'N/A'}**]\n**Score**: \`${setup.score}/100\``, inline: true },
+        { name: '🎯 TARGET STACK', value: `**Strike**: \`$${setup.strike}\`\n**Exp**: \`${setup.expiration || 'N/A'}\``, inline: true },
+        { name: '📉 MARKET CONTEXT', value: `**Price**: \`$${setup.price?.toFixed(2) || 'N/A'}\`\n${changeArrow} **Change**: \`${changeStr}\``, inline: true },
+        { name: '⚡ EXECUTION DATA', value: `**Volume**: \`${(setup.vol || 0).toLocaleString()}\` | **OI**: \`${(setup.oi || 0).toLocaleString()}\``, inline: false },
       ],
       footer: {
-        text: 'My Options Grader • Institutional Edition • ScriptMasterLabs™'
+        text: 'ScriptMasterLabs™ • Operational Intelligence • Zero-Fake Policy enforced'
       },
       timestamp: new Date().toISOString()
     }]

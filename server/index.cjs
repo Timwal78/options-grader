@@ -227,7 +227,8 @@ app.post('/api/validate-key', async (req, res) => {
 
 // ─── CATCHALL (SPA) ──────────────────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
-  app.get('/{path}', (req, res) => {
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
   });
 }

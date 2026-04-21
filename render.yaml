@@ -7,7 +7,25 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Note: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and other API keys 
-      # should be added manually in the Render dashboard for security.
       - key: PORT
         value: 3001
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: SCHWAB_CLIENT_ID
+        sync: false
+      - key: SCHWAB_CLIENT_SECRET
+        sync: false
+      - key: SCHWAB_REDIRECT_URI
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PRICE_STARTER_ID
+        sync: false
+      - key: PRICE_PRO_ID
+        sync: false
+      - key: PRICE_ELITE_ID
+        sync: false
+      - key: FRONTEND_URL
+        sync: false

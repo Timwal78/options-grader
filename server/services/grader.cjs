@@ -41,9 +41,9 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
     greeks: parseFloat(process.env.WEIGHT_GREEKS || '0.20'),
     riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.20'),
     ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.15'),
-    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.20'),
+    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.10'),
     liquidity: parseFloat(process.env.WEIGHT_LIQUIDITY || '0.15'),
-    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.10')
+    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.20')
   };
 
   let totalScore = 0;
@@ -84,7 +84,7 @@ function getGradeColor(score) {
 // ─── FACTOR 1: GREEKS BALANCE (20%) ─────────────────────────────────────────
 // Now DTE-aware: high gamma + low DTE = danger, not opportunity
 function scoreGreeks(c) {
-  let score = 50;
+  let score = 0;
   const absDelta = Math.abs(c.delta || 0);
   const theta = c.theta || 0;
   const gamma = c.gamma || 0;
@@ -94,52 +94,47 @@ function scoreGreeks(c) {
 
   if (!dte || !premium) return 0; // Law 1: Zero-Fake
 
-  // ── Delta sweet spot ──
-  // 0.30-0.50 ideal for directional plays (most retail use case)
-  if (absDelta >= 0.30 && absDelta <= 0.50) score += 20;      // Sweet spot
-  else if (absDelta >= 0.20 && absDelta <= 0.60) score += 12;  // Acceptable
-  else if (absDelta >= 0.15 && absDelta <= 0.70) score += 5;   // Wide but tradeable
-  else if (absDelta > 0.85) score -= 10;                        // Deep ITM — poor leverage
-  else if (absDelta < 0.10) score -= 15;                        // Far OTM — lottery ticket
+  // ── Delta sweet spot (0-30 pts) ──
+  if (absDelta >= 0.30 && absDelta <= 0.50) score += 30;      // Sweet spot
+  else if (absDelta >= 0.20 && absDelta <= 0.60) score += 22;  // Good
+  else if (absDelta >= 0.15 && absDelta <= 0.70) score += 12;  // Acceptable
+  else if (absDelta > 0.85) score += 3;                         // Deep ITM
+  else if (absDelta < 0.10) score += 2;                         // Far OTM
 
-  // ── Theta: scored as % of premium lost per day ──
-  // The question is: how much of my investment evaporates daily?
+  // ── Theta decay rate (0-30 pts) ──
   if (premium > 0) {
     const thetaPctPerDay = Math.abs(theta) / premium * 100;
-    if (thetaPctPerDay < 1.0) score += 15;       // < 1% daily decay — very manageable
-    else if (thetaPctPerDay < 2.0) score += 8;   // 1-2% — acceptable for swings
-    else if (thetaPctPerDay < 5.0) score += 0;   // 2-5% — caution
-    else if (thetaPctPerDay < 10.0) score -= 10; // 5-10% — aggressive decay
-    else score -= 20;                             // 10%+ — contract is melting
+    if (thetaPctPerDay < 0.5) score += 30;       // Minimal decay
+    else if (thetaPctPerDay < 1.0) score += 25;  // Very manageable
+    else if (thetaPctPerDay < 2.0) score += 18;  // Acceptable
+    else if (thetaPctPerDay < 5.0) score += 10;  // Elevated
+    else if (thetaPctPerDay < 10.0) score += 3;  // Aggressive
+    // 10%+ = 0 points
   } else {
-    // Law 1: No data = no score
     return 0;
   }
 
-  // ── Gamma: DTE-aware scoring ──
-  // High gamma near expiry = knife edge. Contract can double or die in minutes.
+  // ── Gamma: DTE-aware (0-20 pts) ──
   if (dte <= 3) {
-    // Very short DTE: high gamma is DANGER, not opportunity
-    if (gamma > 0.08) score -= 15;        // Extreme gamma risk
-    else if (gamma > 0.04) score -= 5;    // Elevated risk
-    else score += 5;                       // Low gamma near expiry = ok (deep ITM)
+    if (gamma > 0.08) score += 2;
+    else if (gamma > 0.04) score += 8;
+    else score += 15;
   } else if (dte <= 14) {
-    // Medium DTE: gamma is useful for momentum plays
-    if (gamma > 0.01 && gamma < 0.06) score += 10;  // Good sensitivity
-    else if (gamma >= 0.06) score += 3;               // High but acceptable with time
+    if (gamma > 0.01 && gamma < 0.06) score += 20;
+    else if (gamma >= 0.06) score += 12;
+    else score += 5;
   } else {
-    // Long DTE: gamma is naturally low, not a differentiator
-    if (gamma > 0.005) score += 5;
+    if (gamma > 0.005) score += 15;
+    else score += 8;
   }
 
-  // ── Vega: sensitivity to IV changes ──
-  // High vega + low IV = good (cheap, benefits from IV expansion)
-  // High vega + high IV = risk (IV crush potential)
+  // ── Vega: IV-aware (0-20 pts) ──
   const iv = c.impliedVolatility || 0;
-  if (vega > 0) {
-    if (iv < 0.40 && vega > 0.05) score += 5;       // Cheap + vol-sensitive = upside
-    else if (iv > 0.80 && vega > 0.10) score -= 5;  // Expensive + vol-sensitive = crush risk
-  }
+  if (iv < 0.30 && vega > 0.03) score += 20;        // Cheap + vol-sensitive
+  else if (iv < 0.40 && vega > 0.05) score += 15;
+  else if (iv < 0.60) score += 10;
+  else if (iv < 0.80) score += 5;
+  else if (iv > 0.80 && vega > 0.10) score += 0;    // IV crush risk
 
   return Math.min(100, Math.max(0, score));
 }
@@ -147,7 +142,7 @@ function scoreGreeks(c) {
 // ─── FACTOR 2: RISK / REWARD (20%) ──────────────────────────────────────────
 // Now uses IV-adjusted expected move instead of flat 10%
 function scoreRiskReward(c, underlyingPrice) {
-  let score = 50;
+  let score = 0;
   const premium = c.lastPrice || c.ask;
   if (!premium || !underlyingPrice || premium <= 0 || underlyingPrice <= 0) return 0;
 
@@ -156,19 +151,14 @@ function scoreRiskReward(c, underlyingPrice) {
   const dte = c.dte;
   const iv = c.impliedVolatility;
 
-  // Law 1: Zero-Fake
   if (!strike || !dte || !iv) return 0;
 
-  // IV-adjusted expected move: price * IV * sqrt(DTE/365)
-  // This gives us a statistically-grounded 1-sigma move estimate
-  const expectedMove = underlyingPrice * iv * Math.sqrt(dte / 365);
+  // 1.5-sigma expected move (covers ~87% of outcomes — a strong but realistic target)
+  const expectedMove = underlyingPrice * iv * Math.sqrt(dte / 365) * 1.5;
   const expectedMoveUp = underlyingPrice + expectedMove;
   const expectedMoveDown = underlyingPrice - expectedMove;
-
-  // Max loss for buyer = premium paid
   const maxLoss = premium;
 
-  // Potential gain at 1-sigma move
   let potentialGain;
   if (isCall) {
     potentialGain = Math.max(0, expectedMoveUp - strike) - premium;
@@ -176,30 +166,37 @@ function scoreRiskReward(c, underlyingPrice) {
     potentialGain = Math.max(0, strike - expectedMoveDown) - premium;
   }
 
+  // Risk/Reward ratio scoring (0-60 pts)
   if (potentialGain <= 0) {
-    // If it's a high-quality OTM setup, don't penalize as heavily as a "lottery ticket"
-    // Use Delta as a proxy for "tradeability"
     const absDelta = Math.abs(c.delta || 0);
-    if (absDelta > 0.35) {
-       score -= 5; // Close to ATM, still a good setup
-    } else {
-       score -= 20; // Pure lottery / far OTM
-    }
+    score += absDelta > 0.35 ? 15 : 5;  // Still tradeable vs lottery
   } else {
     const ratio = potentialGain / maxLoss;
-    if (ratio >= 5) score += 35;       // 5:1+ — exceptional
-    else if (ratio >= 3) score += 30;  // 3:1 — strong
-    else if (ratio >= 2) score += 22;  // 2:1 — good
-    else if (ratio >= 1.5) score += 15;
-    else if (ratio >= 1) score += 8;
-    else score -= 5;                    // Less than 1:1 — poor risk/reward
+    if (ratio >= 5) score += 60;       // 5:1+ — exceptional
+    else if (ratio >= 3) score += 50;  // 3:1 — strong
+    else if (ratio >= 2) score += 42;  // 2:1 — good
+    else if (ratio >= 1.5) score += 35;
+    else if (ratio >= 1) score += 28;
+    else if (ratio >= 0.5) score += 18;
+    else score += 8;
   }
 
-  // Penalize very expensive contracts (premium > 10% of stock price = capital-heavy)
+  // Capital efficiency (0-25 pts)
   const premiumRatio = premium / underlyingPrice;
-  if (premiumRatio > 0.15) score -= 15;
-  else if (premiumRatio > 0.10) score -= 8;
-  else if (premiumRatio < 0.02) score += 8;  // Cheap and efficient
+  if (premiumRatio < 0.01) score += 25;       // Ultra-efficient
+  else if (premiumRatio < 0.02) score += 22;
+  else if (premiumRatio < 0.05) score += 18;
+  else if (premiumRatio < 0.10) score += 12;
+  else if (premiumRatio < 0.15) score += 5;
+  // >15% = 0 pts (capital-heavy)
+
+  // Breakeven proximity (0-15 pts)
+  const breakeven = isCall ? strike + premium : strike - premium;
+  const beDistance = Math.abs(breakeven - underlyingPrice) / underlyingPrice;
+  if (beDistance < 0.02) score += 15;       // Very close to breakeven
+  else if (beDistance < 0.05) score += 12;
+  else if (beDistance < 0.08) score += 8;
+  else if (beDistance < 0.12) score += 4;
 
   return Math.min(100, Math.max(0, score));
 }
@@ -208,14 +205,13 @@ function scoreRiskReward(c, underlyingPrice) {
 // v2: Real chain-rank percentile. Where does this contract's IV sit
 // relative to ALL other contracts in the chain?
 function scoreIV(c, historicalIV, chainStats) {
-  let score = 50;
+  let score = 0;
   const iv = c.impliedVolatility;
-  if (!iv || iv <= 0) return 0; // Law 1: Zero-Fake
+  if (!iv || iv <= 0) return 0;
 
-  let ivRank = 50; // Default neutral
+  let ivRank = 50;
 
   if (chainStats && chainStats.ivSorted && chainStats.ivSorted.length > 0) {
-    // True percentile: rank within the entire chain's IV distribution
     const sorted = chainStats.ivSorted;
     let below = 0;
     for (const chainIV of sorted) {
@@ -223,23 +219,23 @@ function scoreIV(c, historicalIV, chainStats) {
     }
     ivRank = (below / sorted.length) * 100;
   } else if (historicalIV > 0) {
-    // Fallback: compare to median IV of ATM contracts
-    // ivRatio < 1 means cheaper than median, > 1 means more expensive
     const ivRatio = iv / historicalIV;
     ivRank = Math.min(100, ivRatio * 50);
   }
 
-  // Store the real percentile for display
   c.ivPercentile = Math.round(ivRank);
 
-  // Scoring from a BUYER's perspective:
-  // Lower IV = cheaper options = better deal (if you're buying)
-  if (ivRank < 20) score += 30;       // Bottom quintile — IV is very low, options are cheap
-  else if (ivRank < 35) score += 20;  // Below average — good value
-  else if (ivRank < 50) score += 10;  // Slightly below median — fair
-  else if (ivRank < 65) score += 0;   // Neutral zone
-  else if (ivRank < 80) score -= 12;  // Above average — getting expensive
-  else score -= 25;                    // Top quintile — IV is elevated, crush risk
+  // Buyer's perspective: lower IV = cheaper = better (0-100 pts)
+  if (ivRank < 10) score = 100;       // Extreme value — rock-bottom IV
+  else if (ivRank < 20) score = 90;   // Very cheap
+  else if (ivRank < 30) score = 78;   // Below average — good value
+  else if (ivRank < 40) score = 65;   // Slightly below median
+  else if (ivRank < 50) score = 55;   // Fair
+  else if (ivRank < 60) score = 45;   // Slightly above median
+  else if (ivRank < 70) score = 35;   // Getting expensive
+  else if (ivRank < 80) score = 22;   // Expensive
+  else if (ivRank < 90) score = 12;   // Very expensive — crush risk
+  else score = 5;                      // Extreme — likely post-earnings IV spike
 
   return Math.min(100, Math.max(0, score));
 }
@@ -248,55 +244,50 @@ function scoreIV(c, historicalIV, chainStats) {
 // v2: Uses simplified Black-Scholes / lognormal approximation
 // Estimates the probability that the contract expires with value > premium paid
 function scoreProbability(c, underlyingPrice) {
-  let score = 50;
+  let score = 0;
   const strike = c.strike;
   const premium = c.lastPrice || c.ask;
   const isCall = (c.type || '').toLowerCase() === 'call';
   const dte = c.dte;
   const iv = c.impliedVolatility;
 
-  if (!underlyingPrice || !strike || !dte || !iv || !premium) {
-    // Law 1: Zero-Fake — No data, no score.
-    return 0;
-  }
+  if (!underlyingPrice || !strike || !dte || !iv || !premium) return 0;
 
-  // Breakeven for buyer
   const breakeven = isCall ? strike + premium : strike - premium;
-
-  // Log-normal probability that price exceeds breakeven (for calls)
-  // or drops below breakeven (for puts) at expiration
-  // d2 = (ln(S/K) + (r - 0.5*σ²)*T) / (σ*√T)
-  // Using r=0 (risk-free rate negligible for this scoring purpose)
   const T = dte / 365;
   const sigmaRootT = iv * Math.sqrt(T);
 
   let probProfit;
   if (isCall) {
-    // P(S_T > breakeven)
     const d2 = (Math.log(underlyingPrice / breakeven) - 0.5 * iv * iv * T) / sigmaRootT;
     probProfit = normCDF(d2);
   } else {
-    // P(S_T < breakeven)
     const d2 = (Math.log(underlyingPrice / breakeven) - 0.5 * iv * iv * T) / sigmaRootT;
     probProfit = normCDF(-d2);
   }
 
-  // Store for display
   c.probOfProfit = Math.round(probProfit * 100);
 
-  // Score based on probability
-  if (probProfit >= 0.55) score += 30;       // > 55% chance of profit
-  else if (probProfit >= 0.45) score += 20;  // 45-55% — coin flip but acceptable
-  else if (probProfit >= 0.35) score += 10;  // 35-45% — below even odds
-  else if (probProfit >= 0.25) score -= 5;   // 25-35% — unfavorable
-  else if (probProfit >= 0.15) score -= 15;  // 15-25% — long shot
-  else score -= 25;                           // < 15% — lottery ticket
+  // Probability scoring (0-65 pts) — full range
+  if (probProfit >= 0.60) score += 65;       // >60% — strong edge
+  else if (probProfit >= 0.55) score += 58;
+  else if (probProfit >= 0.50) score += 50;  // Coin flip — fair
+  else if (probProfit >= 0.45) score += 42;
+  else if (probProfit >= 0.40) score += 35;
+  else if (probProfit >= 0.35) score += 28;
+  else if (probProfit >= 0.30) score += 20;
+  else if (probProfit >= 0.25) score += 12;
+  else if (probProfit >= 0.15) score += 5;
+  // <15% = 0 pts — lottery ticket
 
-  // DTE sweet spot bonus (14-60 days gives time for thesis to play out)
-  if (dte >= 14 && dte <= 60) score += 10;
-  else if (dte >= 7 && dte <= 90) score += 5;
-  else if (dte < 5) score -= 10;   // Very short — theta crushes probability
-  else if (dte > 180) score -= 5;  // Very long — capital locked up
+  // DTE sweet spot (0-35 pts)
+  if (dte >= 14 && dte <= 45) score += 35;       // Ideal swing window
+  else if (dte >= 7 && dte <= 60) score += 28;
+  else if (dte >= 5 && dte <= 90) score += 20;
+  else if (dte >= 3 && dte <= 120) score += 12;
+  else if (dte < 3) score += 2;                  // Expiry danger
+  else if (dte > 180) score += 8;                // Capital locked
+  else score += 15;                               // 120-180 range
 
   return Math.min(100, Math.max(0, score));
 }
@@ -334,34 +325,40 @@ function scoreMoneynessFallback(c, underlyingPrice) {
 
 // ─── FACTOR 5: LIQUIDITY (15%) ──────────────────────────────────────────────
 function scoreLiquidity(c) {
-  let score = 30;
+  let score = 0;
   const bid = c.bid || 0;
   const ask = c.ask || 0;
   const volume = c.volume || 0;
   const openInterest = c.openInterest || 0;
 
-  // Bid-Ask spread (tighter = better fills = lower slippage)
+  // Bid-Ask spread (0-40 pts)
   if (bid > 0 && ask > 0) {
     const spread = (ask - bid) / ask;
-    if (spread < 0.03) score += 35;       // Penny-wide — institutional quality
-    else if (spread < 0.08) score += 25;  // Tight — good fills
-    else if (spread < 0.15) score += 10;  // Acceptable
-    else if (spread > 0.30) score -= 15;  // Wide — slippage risk
+    if (spread < 0.02) score += 40;       // Penny-wide — institutional
+    else if (spread < 0.05) score += 35;
+    else if (spread < 0.08) score += 28;
+    else if (spread < 0.15) score += 18;
+    else if (spread < 0.25) score += 8;
+    // >25% = 0 pts — too wide
   }
 
-  // Volume
-  if (volume > 5000) score += 20;        // Very active
-  else if (volume > 1000) score += 15;
-  else if (volume > 100) score += 10;
-  else if (volume > 10) score += 5;
-  else score -= 10;                       // Ghost contract
+  // Volume (0-35 pts)
+  if (volume > 10000) score += 35;
+  else if (volume > 5000) score += 30;
+  else if (volume > 1000) score += 25;
+  else if (volume > 500) score += 20;
+  else if (volume > 100) score += 15;
+  else if (volume > 10) score += 8;
+  // <10 = 0 pts — ghost contract
 
-  // Open interest
-  if (openInterest > 10000) score += 15;  // Deep pool
-  else if (openInterest > 5000) score += 12;
-  else if (openInterest > 500) score += 8;
-  else if (openInterest > 50) score += 3;
-  else score -= 10;                        // No market maker interest
+  // Open interest (0-25 pts)
+  if (openInterest > 20000) score += 25;
+  else if (openInterest > 10000) score += 22;
+  else if (openInterest > 5000) score += 18;
+  else if (openInterest > 1000) score += 14;
+  else if (openInterest > 500) score += 10;
+  else if (openInterest > 50) score += 5;
+  // <50 = 0 pts — no market maker interest
 
   return Math.min(100, Math.max(0, score));
 }
@@ -369,49 +366,45 @@ function scoreLiquidity(c) {
 // ─── FACTOR 6: TECHNICAL / MOMENTUM (10%) ───────────────────────────────────
 // v2: Replaces hardcoded 65 with actual momentum signal from the underlying
 function scoreTechnical(c, underlyingPrice) {
-  let score = 50;
-
-  // Use the underlying's daily % change if available
+  let score = 0;
   const change = c.underlyingChange || 0;
   const isCall = (c.type || '').toLowerCase() === 'call';
 
-  // Momentum alignment: is the stock moving in the direction of your bet?
+  // OTM validation (0 or 40 pts) — ITM contracts are NOT setups
   if (isCall) {
-    if (change > 3) score += 25;          // Strong bullish momentum
-    else if (change > 1) score += 15;     // Moderate bullish
-    else if (change > 0) score += 5;      // Slight bullish
-    else if (change < -2) score -= 15;    // Stock falling — fighting the trend
-    else if (change < 0) score -= 5;      // Slight headwind
+    if (c.strike <= underlyingPrice) return 0;  // ITM/ATM Call = not a setup
   } else {
-    // Puts
-    if (change < -3) score += 25;         // Strong bearish momentum
-    else if (change < -1) score += 15;    // Moderate bearish
-    else if (change < 0) score += 5;      // Slight bearish
-    else if (change > 2) score -= 15;     // Stock rising — fighting the trend
-    else if (change > 0) score -= 5;      // Slight headwind
+    if (c.strike >= underlyingPrice) return 0;  // ITM/ATM Put = not a setup
   }
 
-  // Bonus: ITM confirmation (price action already supports your thesis)
-  // v2.1: Institutional Setup Hardening
-  // We prioritize OTM "Setups" for Discovery alerts.
-  // Bearish Case: We want Puts where Strike < Price (Price has ROOM TO DROP).
-  // Bullish Case: We want Calls where Strike > Price (Price has ROOM TO RISE).
+  // OTM confirmed — award setup base (40 pts)
+  score += 40;
+
+  // Momentum alignment (0-40 pts)
   if (isCall) {
-    if (c.strike < underlyingPrice) {
-      score -= 500; // Aggressive Penalty: ITM Calls are NOT "Setups"
-    } else if (c.inTheMoney) {
-      score += 10;
-    }
+    if (change > 3) score += 40;          // Strong bullish
+    else if (change > 2) score += 35;
+    else if (change > 1) score += 28;
+    else if (change > 0.5) score += 20;
+    else if (change > 0) score += 12;
+    else if (change > -1) score += 5;     // Slight headwind OK
+    // < -1% = 0 pts — fighting the trend
   } else {
-    // Puts
-    if (c.strike > underlyingPrice) {
-      score -= 500; // Aggressive Penalty: ITM Puts are NOT "Setups" (Strike > Price is ITM)
-    } else {
-      // OTM Put: This is a Bearish Setup (Price > Strike)
-      // We want to reward the setup alignment
-      if (change < 0) score += 30; // Reward momentum alignment for setups
-    }
+    if (change < -3) score += 40;         // Strong bearish
+    else if (change < -2) score += 35;
+    else if (change < -1) score += 28;
+    else if (change < -0.5) score += 20;
+    else if (change < 0) score += 12;
+    else if (change < 1) score += 5;
   }
+
+  // OTM proximity bonus (0-20 pts) — closer to ATM = higher probability
+  const otmPct = Math.abs(c.strike - underlyingPrice) / underlyingPrice;
+  if (otmPct < 0.02) score += 20;        // Near ATM — highest prob
+  else if (otmPct < 0.05) score += 15;
+  else if (otmPct < 0.08) score += 10;
+  else if (otmPct < 0.12) score += 5;
+  // >12% OTM = 0 bonus
 
   return Math.min(100, Math.max(0, score));
 }
