@@ -47,11 +47,11 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
 
   const weights = {
     greeks: parseFloat(process.env.WEIGHT_GREEKS || '0.20'),
-    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.25'),
-    ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.10'),
-    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.10'),
+    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.20'),
+    ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.15'),
+    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.20'),
     liquidity: parseFloat(process.env.WEIGHT_LIQUIDITY || '0.15'),
-    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.20')
+    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.10')
   };
 
   const totalWeights = Object.values(weights).reduce((a, b) => a + b, 0);
@@ -137,10 +137,17 @@ function scoreRiskReward(c, underlyingPrice) {
   const targetPrice = isCall ? underlyingPrice + expectedMove : underlyingPrice - expectedMove;
   
   const potentialGain = isCall ? Math.max(0, targetPrice - strike) - premium : Math.max(0, strike - targetPrice) - premium;
-  const ratio = Math.max(0, potentialGain / premium);
+  let ratio = Math.max(0, potentialGain / premium);
+
+  // institutional logic: penalize high IV "lotto" setups
+  const ivPenaltyThreshold = parseFloat(process.env.RR_IV_PENALTY_THRESHOLD || '0.50');
+  if (iv > ivPenaltyThreshold) {
+    const penaltyMult = ivPenaltyThreshold / iv;
+    ratio *= penaltyMult;
+  }
 
   const minRatio = parseFloat(process.env.RR_RATIO_MIN || '0.5');
-  const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '3.5');
+  const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '2.0');
 
   return Math.round(interpolate(ratio, minRatio, maxRatio, 0, 100));
 }
@@ -180,12 +187,13 @@ function scoreProbability(c, underlyingPrice) {
   const probProfit = isCall ? normCDF(d2) : normCDF(-d2);
 
   const minProb = parseFloat(process.env.PROB_MIN || '0.10');
-  const maxProb = parseFloat(process.env.PROB_MAX || '0.60');
+  const maxProb = parseFloat(process.env.PROB_MAX || '0.40');
   const dteMin = parseFloat(process.env.PROB_DTE_MIN || '3');
   const dteMax = parseFloat(process.env.PROB_DTE_MAX || '21');
 
-  let score = interpolate(probProfit, minProb, maxProb, 0, 65);
-  score += interpolate(dte, dteMin, dteMax, 0, 35) * (dte > 60 ? interpolate(dte, 60, 180, 1.0, 0.2) : 1.0);
+  // Reward realistic OTM probabilities (top scores starting at 40%+)
+  let score = interpolate(probProfit, minProb, maxProb, 35, 65);
+  score += interpolate(dte, dteMin, dteMax, 5, 35) * (dte > 60 ? interpolate(dte, 60, 180, 1.0, 0.2) : 1.0);
 
   return Math.round(Math.min(100, Math.max(0, score)));
 }
@@ -202,10 +210,10 @@ function scoreLiquidity(c) {
   const maxSpread = parseFloat(process.env.LIQ_SPREAD_MAX || '0.15');
   const minSpread = parseFloat(process.env.LIQ_SPREAD_MIN || '0.01');
   const minVol = parseFloat(process.env.LIQ_VOL_MIN || '10');
-  const maxVol = parseFloat(process.env.LIQ_VOL_MAX || '5000');
+  const maxVol = parseFloat(process.env.LIQ_VOL_MAX || '2000');
 
   let score = 0;
-  score += interpolate(spread, maxSpread, minSpread, 0, 60);
+  score += interpolate(spread, maxSpread, minSpread, 20, 60);
   score += interpolate(volume, minVol, maxVol, 0, 40);
 
   return Math.round(score);
