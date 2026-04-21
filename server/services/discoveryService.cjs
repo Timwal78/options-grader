@@ -49,13 +49,14 @@ async function refreshDiscovery() {
     const uniqueTickers = [...new Set(allMovers.map(m => m.symbol))];
 
     // Prioritize Affordable under $500 (widened from $100 to include major tech)
-    const priorityTickers = allMovers.filter(m => m.regularMarketPrice < 500)
+    const maxPrice = parseFloat(process.env.DISCOVERY_MAX_PRICE || '500');
+    const priorityTickers = allMovers.filter(m => m.regularMarketPrice < maxPrice)
                                     .map(m => m.symbol)
                                     .concat(uniqueTickers)
                                     .slice(0, 100);
 
     const newSetups = [];
-    const megaCaps = ['SPY', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META', 'QQQ'];
+    const megaCaps = (process.env.DISCOVERY_MEGA_CAPS || 'SPY,AAPL,MSFT,NVDA,TSLA,GOOGL,AMZN,META,QQQ').split(',');
     let megaCapCount = 0;
 
     const discordEnabled = isEnabled();
@@ -71,10 +72,10 @@ async function refreshDiscovery() {
         if (!chain || !chain.contracts) continue;
 
         const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
-        // ── ZERO-FAKE: Only C+ (67+) and above reach the tape or Discord ──
-        const MINIMUM_SCORE = 67; // C+ floor — D and below are rejected
+        // ── ZERO-FAKE: Only institutional-vetted signals reach the tape or Discord ──
+        const minDiscoveryScore = parseFloat(process.env.DISCOVERY_MIN_SCORE || '67');
         const setups = (graded || []).filter(c => {
-          if (c.totalScore < MINIMUM_SCORE) return false;
+          if (c.totalScore < minDiscoveryScore) return false;
           // Directional filter: Puts must be OTM (Strike < Price), Calls must be OTM (Strike > Price)
           if (c.type === 'put'  && c.strike >= chain.underlyingPrice) return false;
           if (c.type === 'call' && c.strike <= chain.underlyingPrice) return false;

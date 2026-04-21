@@ -63,6 +63,12 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
   // Normalize by total weights to handle custom weighting scenarios
   if (totalWeights > 0) totalScore = totalScore / totalWeights;
 
+  // institutional logic: Final score scaling (Curve adjustment)
+  const finalScaling = parseFloat(process.env.FINAL_SCORE_SCALING || '1.0');
+  if (finalScaling !== 1.0) {
+    totalScore = Math.pow(totalScore / 100, finalScaling) * 100;
+  }
+
   totalScore = Math.round(Math.min(100, Math.max(0, totalScore)));
 
   return {
@@ -76,20 +82,20 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
 }
 
 function getLetterGrade(score) {
-  if (score >= 90) return 'A+';
-  if (score >= 85) return 'A';
-  if (score >= 80) return 'B+';
-  if (score >= 72) return 'B';
-  if (score >= 62) return 'C+';
-  if (score >= 50) return 'C';
-  if (score >= 35) return 'D';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_APLUS || '90')) return 'A+';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_A || '85')) return 'A';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_BPLUS || '80')) return 'B+';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_B || '72')) return 'B';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_CPLUS || '62')) return 'C+';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_C || '50')) return 'C';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_D || '35')) return 'D';
   return 'F';
 }
 
 function getGradeColor(score) {
-  if (score >= 80) return '#00E676';
-  if (score >= 62) return '#FFD740';
-  if (score >= 50) return '#FF9100';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_BPLUS || '80')) return '#00E676';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_CPLUS || '62')) return '#FFD740';
+  if (score >= parseFloat(process.env.GRADE_THRESHOLD_C || '50')) return '#FF9100';
   return '#FF4444';
 }
 
@@ -143,10 +149,11 @@ function scoreRiskReward(c, underlyingPrice) {
   const potentialGain = isCall ? Math.max(0, targetPrice - strike) - premium : Math.max(0, strike - targetPrice) - premium;
   let ratio = Math.max(0, potentialGain / premium);
 
-  // institutional logic: penalize high IV "lotto" setups aggressively (Cubic decay)
+  // institutional logic: penalize high IV "lotto" setups aggressively (Configurable decay)
   const ivPenaltyThreshold = parseFloat(process.env.RR_IV_PENALTY_THRESHOLD || '0.50');
   if (iv > ivPenaltyThreshold) {
-    const penaltyMult = Math.pow(ivPenaltyThreshold / iv, 3); // Institutional cubic penalty
+    const penaltyPower = parseFloat(process.env.RR_IV_PENALTY_POWER || '3');
+    const penaltyMult = Math.pow(ivPenaltyThreshold / iv, penaltyPower); // Institutional cubic/config penalty
     ratio *= penaltyMult;
   }
 

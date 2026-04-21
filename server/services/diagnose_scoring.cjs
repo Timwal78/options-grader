@@ -1,8 +1,9 @@
 /**
- * FORENSIC DIAGNOSTIC v3.0: Institutional Signal Integrity Audit
+ * FORENSIC DIAGNOSTIC v3.1: Institutional Signal Integrity Audit
  * 
  * Target: Ensure "Elite" signals reach 90+ (A+) and "Noisy" signals
- * are severely penalized (Score < 60) via High-IV penalty.
+ * are severely penalized (Score < 60).
+ * Verification: Precise A/B/C/D differentiation (Zero Clustering).
  */
 const { gradeContract } = require('./grader.cjs');
 const path = require('path');
@@ -38,6 +39,15 @@ const noisyCall = {
   dte: 7, underlyingChange: 1.2, inTheMoney: false
 };
 
+const mediocreCall = {
+  contractSymbol: 'MEDIOCRE_RETAIL_SETUP', type: 'call',
+  strike: 160.00, lastPrice: 1.50, bid: 1.40, ask: 1.60,
+  volume: 200, openInterest: 1500,
+  impliedVolatility: 0.38, // Moderate IV
+  delta: 0.30, theta: -0.05,
+  dte: 15, underlyingChange: 0.5, inTheMoney: false
+};
+
 function diagnose(label, contract) {
   const result = gradeContract(contract, price, histIV, chainStats);
   console.log(`── ${label} ──`);
@@ -71,6 +81,7 @@ function diagnose(label, contract) {
 }
 
 diagnose('ELITE SETUP (A+ EXPECTED)', perfectCall);
+diagnose('MEDIOCRE SETUP (B/C EXPECTED)', mediocreCall);
 diagnose('NOISY SETUP (D/F EXPECTED)', noisyCall);
 
 console.log('═══════════════════════════════════════════════════════════');
