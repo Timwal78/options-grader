@@ -39,8 +39,8 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
 
   const weights = {
     greeks: parseFloat(process.env.WEIGHT_GREEKS || '0.20'),
-    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.20'),
-    ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.15'),
+    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.25'),
+    ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.10'),
     probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.10'),
     liquidity: parseFloat(process.env.WEIGHT_LIQUIDITY || '0.15'),
     technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.20')
@@ -270,15 +270,12 @@ function scoreProbability(c, underlyingPrice) {
 
   // Probability scoring (0-65 pts) — full range
   if (probProfit >= 0.60) score += 65;       // >60% — strong edge
-  else if (probProfit >= 0.55) score += 58;
-  else if (probProfit >= 0.50) score += 50;  // Coin flip — fair
-  else if (probProfit >= 0.45) score += 42;
-  else if (probProfit >= 0.40) score += 35;
-  else if (probProfit >= 0.35) score += 28;
-  else if (probProfit >= 0.30) score += 20;
-  else if (probProfit >= 0.25) score += 12;
-  else if (probProfit >= 0.15) score += 5;
-  // <15% = 0 pts — lottery ticket
+  else if (probProfit >= 0.50) score += 58;
+  else if (probProfit >= 0.40) score += 50;
+  else if (probProfit >= 0.30) score += 40;
+  else if (probProfit >= 0.20) score += 25;
+  else if (probProfit >= 0.10) score += 10;
+  // <10% = 0 pts — lottery ticket
 
   // DTE sweet spot (0-35 pts)
   if (dte >= 14 && dte <= 45) score += 35;       // Ideal swing window
@@ -377,8 +374,8 @@ function scoreTechnical(c, underlyingPrice) {
     if (c.strike >= underlyingPrice) return 0;  // ITM/ATM Put = not a setup
   }
 
-  // OTM confirmed — award setup base (40 pts)
-  score += 40;
+  // OTM confirmed — award setup base (60 pts)
+  score += 60;
 
   // Momentum alignment (0-40 pts)
   if (isCall) {
