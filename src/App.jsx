@@ -57,16 +57,13 @@ function App() {
 
   // Handle Stripe Success Redirect
   useEffect(() => {
+    // ENFORCED ELITE TIER FOR LOCAL SYSTEM
+    setTier('elite');
+    localStorage.setItem('og_tier', 'elite');
+    
     const params = new URLSearchParams(window.location.search);
-    const newTier = params.get('tier');
-    if (newTier && params.get('session_id')) {
-      setTier(newTier);
-      localStorage.setItem('og_tier', newTier);
-      // Clean URL
+    if (params.get('session_id')) {
       window.history.replaceState({}, document.title, window.location.pathname);
-    } else {
-      const savedTier = localStorage.getItem('og_tier');
-      if (savedTier) setTier(savedTier);
     }
   }, []);
 
@@ -76,11 +73,6 @@ function App() {
   };
 
   const fetchThesis = async (contract) => {
-    if (!byokKeys.openaiKey) {
-      setThesis("🔒 Premium Feature: Please provide your OpenAI API Key in Settings to unlock the AI Trade Thesis.");
-      setSelectedContract(contract);
-      return;
-    }
     setThesisLoading(true);
     setSelectedContract(contract);
     setThesis(null);
@@ -169,9 +161,7 @@ function App() {
         <nav className="header-nav">
           <button className={`nav-btn ${page === 'dashboard' ? 'active' : ''}`} onClick={() => setPage('dashboard')}>Scanner</button>
           <button className={`nav-btn ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>Settings</button>
-          <button className={`nav-btn ${page === 'pricing' ? 'active' : ''}`} onClick={() => setPage('pricing')}>Pricing</button>
-          {tier !== 'elite' && <button className="nav-btn upgrade" onClick={() => setPage('pricing')}>⚡ Upgrade</button>}
-          {tier === 'elite' && <div className="nav-badge elite">💎 ELITE</div>}
+          <div className="nav-badge elite">💎 ELITE ACCESS</div>
         </nav>
       </header>
 

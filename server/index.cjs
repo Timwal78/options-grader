@@ -121,7 +121,7 @@ function rateLimiter(tier) {
 // ─── SCAN ENDPOINT ───────────────────────────────────────────────────────────
 app.post('/api/scan', async (req, res) => {
   try {
-    let { ticker, tier = 'free', byokConfig = {}, userId } = req.body;
+    let { ticker, tier = 'elite', byokConfig = {}, userId } = req.body;
     
     // Server-side tier verification if userId is present (Enforced in Production)
     if (userId && process.env.NODE_ENV === 'production') {
@@ -185,9 +185,9 @@ app.post('/api/scan', async (req, res) => {
 // ─── AI THESIS ENDPOINT ──────────────────────────────────────────────────────
 app.post('/api/thesis', async (req, res) => {
   try {
-    const { contract, underlyingPrice, apiKey } = req.body;
-    if (!apiKey) return res.status(400).json({ error: 'OpenAI API Key required (Elite feature)' });
-    const thesis = await generateThesis(contract, underlyingPrice, apiKey);
+    const { contract, underlyingPrice } = req.body;
+    // Uses the server-side ANTHROPIC_API_KEY by default
+    const thesis = await generateThesis(contract, underlyingPrice);
     res.json({ thesis });
   } catch (error) {
     res.status(500).json({ error: error.message });
