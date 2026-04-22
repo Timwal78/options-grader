@@ -39,7 +39,7 @@ async function generateThesis(contract, underlyingPrice) {
 
   try {
     const message = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || "claude-3-haiku-20240307",
+      model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5-20250929",
       max_tokens: 200,
       messages: [{ role: "user", content: prompt }],
     });
