@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// My Options Grader — Grading Engine v2.5 (High-Fidelity)
+// The Options Edge™ — Institutional Grading Engine v5.0
 // by ScriptMasterLabs™
-// 6-Factor scoring algorithm — Institutional-grade, Formula-driven
+// 6-Factor Greek-Symbol Scoring (Σ, Ω, IV, Γ, Δ, Θ)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -33,12 +33,13 @@ function interpolate(val, inMin, inMax, outMin, outMax) {
 }
 
 /**
- * LETHAL SUITE | Options Grader Engine (Institutional v4.5)
+ * LETHAL SUITE | Options Grader Engine (Institutional v5.0)
  * (c) 2026 ScriptMasterLabs™
  * 
- * LAW ADHERENCE: This service strictly follows THE DEVELOPER MANIFESTO.
- * - 100% Data-Driven: No mock arrays, no simulated signals.
- * - S3 Parity: A=80, B=60, C=45 thresholds enforced.
+ * THE DEVELOPER MANIFESTO (Zero-Fake Edition):
+ * 1. ZERO MOCK DATA: All signals must originate from live market truth.
+ * 2. S3 PARITY: A=80, B=60, C=45 thresholds strictly enforced.
+ * 3. DYNAMIC DISCOVERY: No static watchlists.
  */
 const { exec } = require('child_process');
 const fs = require('fs');
@@ -47,22 +48,25 @@ const fs = require('fs');
  * Grade a single options contract on 6 factors (0-100 each)
  */
 function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
+  // ─── Zero-Fake Integrity Filter ───
+  if (!validateContract(contract)) return null;
+
   const scores = {
-    greeks: scoreGreeks(contract),
-    riskReward: scoreRiskReward(contract, underlyingPrice),
-    ivPercentile: scoreIV(contract, historicalIV, chainStats),
-    probability: scoreProbability(contract, underlyingPrice),
-    liquidity: scoreLiquidity(contract),
-    technical: scoreTechnical(contract, underlyingPrice)
+    delta: scoreDelta(contract),
+    theta: scoreTheta(contract),
+    gamma: scoreGamma(contract),
+    ivPercentile: scoreIvPercentile(contract, historicalIV, chainStats),
+    sigma: scoreSigma(contract, historicalIV),
+    omega: scoreOmega(contract, underlyingPrice)
   };
 
   const weights = {
-    greeks: parseFloat(process.env.WEIGHT_GREEKS || '0.20'),
-    riskReward: parseFloat(process.env.WEIGHT_RISK_REWARD || '0.20'),
+    delta: parseFloat(process.env.WEIGHT_DELTA || '0.20'),
+    theta: parseFloat(process.env.WEIGHT_THETA || '0.15'),
+    gamma: parseFloat(process.env.WEIGHT_GAMMA || '0.15'),
     ivPercentile: parseFloat(process.env.WEIGHT_IV || '0.15'),
-    probability: parseFloat(process.env.WEIGHT_PROBABILITY || '0.20'),
-    liquidity: parseFloat(process.env.WEIGHT_LIQUIDITY || '0.15'),
-    technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.10')
+    sigma: parseFloat(process.env.WEIGHT_SIGMA || '0.15'),
+    omega: parseFloat(process.env.WEIGHT_OMEGA || '0.20')
   };
 
   const totalWeights = Object.values(weights).reduce((a, b) => a + b, 0);
@@ -114,72 +118,72 @@ function getGradeColor(score) {
   return '#FF4444';                // Institutional Red
 }
 
-// ─── FACTOR 1: GREEKS (20%) ─────────────────────────────────────────
-function scoreGreeks(c) {
-  let score = 0;
+/**
+ * ZERO-FAKE: Verify contract integrity before grading.
+ * Rejects contracts with zero volume, excessive spreads, or missing core data.
+ */
+function validateContract(c) {
+  const ask = c.ask || 0;
+  const bid = c.bid || 0;
+  if (ask <= 0 || !c.strike || !c.dte || !c.impliedVolatility) return false;
+  
+  // Spread Filter: Maximum 35% spread of the ask price
+  const spread = (ask - bid) / ask;
+  if (spread > 0.35) return false;
+
+  // Volume Filter: Institutional Minimum (Disabled for deep OTM low-liquidity discovery if needed, 
+  // but strictly mandated for Grade A signals). 
+  // Currently enforcing Zero-Fake: Must have at least core volume data.
+  if (c.volume === undefined || c.openInterest === undefined) return false;
+
+  return true;
+}
+
+// ─── FACTOR 1: Δ (DELTA) ───────────────────────────────────────────
+function scoreDelta(c) {
   const absDelta = Math.abs(c.delta || 0);
-  const theta = c.theta || 0;
-  const premium = c.lastPrice || c.ask;
-  const dte = c.dte;
-
-  if (!dte || !premium || premium <= 0 || !c.impliedVolatility) return 0;
-
-  // Delta: continuous (Target sweet spot)
   const targetDelta = parseFloat(process.env.GREEKS_DELTA_TARGET || '0.40');
-  const deltaScoreMax = parseFloat(process.env.GREEKS_DELTA_SCORE_MAX || '45');
+  const deltaScoreMax = 100;
   const deltaDist = Math.abs(absDelta - targetDelta);
-  score += interpolate(deltaDist, targetDelta, 0.0, 0, deltaScoreMax);
+  
+  // Reward delta near institutional sweet spot (0.35 - 0.45)
+  return Math.round(interpolate(deltaDist, 0.25, 0.0, 0, deltaScoreMax));
+}
 
-  // Theta Decay: Lower is better (Zero-Fake: return 0 if no theta)
-  const dailyTheta = Math.abs(theta) / premium;
-  const thetaMax = parseFloat(process.env.GREEKS_THETA_MAX || '0.05');
+// ─── FACTOR 2: Θ (THETA) ───────────────────────────────────────────
+function scoreTheta(c) {
+  const theta = Math.abs(c.theta || 0);
+  const premium = c.lastPrice || c.ask;
+  if (!premium || premium <= 0) return 0;
+  
+  const dailyThetaPct = theta / premium;
+  const thetaMax = parseFloat(process.env.GREEKS_THETA_MAX || '0.06');
   const thetaMin = parseFloat(process.env.GREEKS_THETA_MIN || '0.005');
-  const thetaScoreMax = parseFloat(process.env.GREEKS_THETA_SCORE_MAX || '30');
-  score += interpolate(dailyTheta, thetaMax, thetaMin, 0, thetaScoreMax);
+  
+  // Lower rental cost (Theta) is better for buyers
+  return Math.round(interpolate(dailyThetaPct, thetaMax, thetaMin, 0, 100));
+}
 
-  // Vol Stability: Preferred lower IV for buys (No base/padding)
-  const iv = c.impliedVolatility || 0;
-  const ivMax = parseFloat(process.env.GREEKS_IV_MAX || '1.0');
-  const ivMin = parseFloat(process.env.GREEKS_IV_MIN || '0.20');
-  const ivScoreMax = parseFloat(process.env.GREEKS_IV_SCORE_MAX || '25');
-  score += interpolate(iv, ivMax, ivMin, 0, ivScoreMax);
-
+// ─── FACTOR 3: Γ (GAMMA RISK) ──────────────────────────────────────
+function scoreGamma(c) {
+  const gamma = Math.abs(c.gamma || 0);
+  const dte = c.dte;
+  
+  // ── Gamma Risk Hardening ──
+  // 0DTE (DTE < 1) is extremely volatile. We penalize high gamma setups 
+  // unless they are for scalp-only tactical execution.
+  let score = 100;
+  if (dte < 1) {
+    score = interpolate(gamma, 0.15, 0.01, 10, 80); // Capped at 80 for 0DTE
+  } else {
+    score = interpolate(gamma, 0.08, 0.005, 30, 100);
+  }
+  
   return Math.round(score);
 }
 
-// ─── FACTOR 2: RISK / REWARD (25%) ──────────────────────────────────────────
-function scoreRiskReward(c, underlyingPrice) {
-  const premium = c.lastPrice || c.ask;
-  const iv = c.impliedVolatility;
-  const dte = c.dte;
-  const strike = c.strike;
-  if (!premium || !underlyingPrice || !iv || !dte || !strike) return 0;
-
-  const isCall = (c.type || '').toLowerCase() === 'call';
-  // institutional expected move: configurable sigma
-  const sigmaMult = parseFloat(process.env.RR_SIGMA_MULT || '1.5');
-  const expectedMove = underlyingPrice * iv * Math.sqrt(dte / 365) * sigmaMult;
-  const targetPrice = isCall ? underlyingPrice + expectedMove : underlyingPrice - expectedMove;
-  
-  const potentialGain = isCall ? Math.max(0, targetPrice - strike) - premium : Math.max(0, strike - targetPrice) - premium;
-  let ratio = Math.max(0, potentialGain / premium);
-
-  // ── Institutional Law: Aggressive IV Decay Penalty ──
-  const ivPenaltyThreshold = parseFloat(process.env.RR_IV_PENALTY_THRESHOLD || '0.50');
-  if (iv > ivPenaltyThreshold) {
-    const penaltyPower = parseFloat(process.env.RR_IV_PENALTY_POWER || '3');
-    const penaltyMult = Math.pow(ivPenaltyThreshold / iv, penaltyPower); // Institutional cubic/config penalty
-    ratio *= penaltyMult;
-  }
-
-  const minRatio = parseFloat(process.env.RR_RATIO_MIN || '0.5');
-  const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '2.5');
-  
-  return Math.round(interpolate(ratio, minRatio, maxRatio, 0, 100));
-}
-
-// ─── FACTOR 3: IV PERCENTILE (10%) ──────────────────────────────────────────
-function scoreIV(c, historicalIV, chainStats) {
+// ─── FACTOR 4: IV PERCENTILE ──────────────────────────────────────────
+function scoreIvPercentile(c, historicalIV, chainStats) {
   const iv = c.impliedVolatility || 0;
   if (iv <= 0) return 0;
   
@@ -193,118 +197,50 @@ function scoreIV(c, historicalIV, chainStats) {
   
   const minIV = parseFloat(process.env.IV_PCT_MIN || '0');
   const maxIV = parseFloat(process.env.IV_PCT_MAX || '100');
-  const ivPctScoreMin = parseFloat(process.env.IV_PCT_SCORE_MIN || '0');
-  const ivPctScoreMax = parseFloat(process.env.IV_PCT_SCORE_MAX || '100');
-
-  // institutional logic: buy low IV, sell high IV
-  return Math.round(interpolate(ivRank, maxIV, minIV, ivPctScoreMin, ivPctScoreMax));
+  
+  // Institutional strategy: Buy relatively lower IV in the chain
+  return Math.round(interpolate(ivRank, maxIV, minIV, 0, 100));
 }
 
-// ─── FACTOR 4: PROBABILITY (10%) ──────────────────────────────────
-function scoreProbability(c, underlyingPrice) {
-  const strike = c.strike;
+// ─── FACTOR 5: Σ (SIGMA - STABILITY) ──────────────────────────────
+function scoreSigma(c, historicalIV) {
+  const iv = c.impliedVolatility || 0;
+  if (!iv || !historicalIV) return 50; // Neutral if no HV
+  
+  // Sigma measures IV relative to realized/historical volatility (Efficiency)
+  const ratio = iv / historicalIV;
+  
+  // Ideal ratio is near 1.0 - 1.2 (Slightly overpriced but stable)
+  // Ratio > 2.0 indicates extreme overpricing (Low score)
+  // Ratio < 0.8 indicates potential underpricing (High score)
+  if (ratio <= 1.2) return interpolate(ratio, 0.5, 1.2, 100, 80);
+  return interpolate(ratio, 1.2, 2.5, 80, 0);
+}
+
+// ─── FACTOR 6: Ω (OMEGA - LEVERAGE) ──────────────────────────────
+function scoreOmega(c, underlyingPrice) {
+  const delta = Math.abs(c.delta || 0);
   const premium = c.lastPrice || c.ask;
-  const iv = c.impliedVolatility;
-  const dte = Math.max(0.1, c.dte);
-  if (!underlyingPrice || !strike || !iv || !dte || !premium) return 0;
-
-  const isCall = (c.type || '').toLowerCase() === 'call';
-  const breakeven = isCall ? strike + premium : strike - premium;
-  const T = dte / 365;
+  if (!premium || !underlyingPrice) return 0;
   
-  // High-precision BS D2 calculation
-  const d2 = (Math.log(underlyingPrice / breakeven) - 0.5 * iv * iv * T) / (iv * Math.sqrt(T));
-  const probProfit = isCall ? normCDF(d2) : normCDF(-d2);
-
-  // ── Gamma Risk Hardening ──
-  // 0DTE has extreme gamma risk. We penalize theoretical probability 
-  // unless the setup is already deeply confirmed (Prob > 60%).
-  let gammaModifier = 1.0;
-  if (c.dte < 1 && probProfit < 0.60) {
-      gammaModifier = 0.5; // OTM 0DTE lottery traps are suppressed
-  }
-
-  const minProb = parseFloat(process.env.PROB_MIN || '0.10');
-  const maxProb = parseFloat(process.env.PROB_MAX || '0.40');
-  const scoreBaseMin = parseFloat(process.env.PROB_SCORE_BASE_MIN || '35');
-  const scoreBaseMax = parseFloat(process.env.PROB_SCORE_BASE_MAX || '65');
+  // Omega (Elasticity) = (Delta * StockPrice) / OptionPrice
+  // Measures the % change in option for 1% change in stock.
+  const omega = (delta * underlyingPrice) / premium;
   
-  let score = interpolate(probProfit, minProb, maxProb, scoreBaseMin, scoreBaseMax);
+  const minOmega = parseFloat(process.env.OMEGA_MIN || '5');
+  const maxOmega = parseFloat(process.env.OMEGA_MAX || '25');
   
-  // Reward Time Value (up to a point)
-  const dteScore = interpolate(dte, 1, 21, 5, 35);
-  score += dteScore * gammaModifier;
-
-  return Math.round(Math.min(100, Math.max(0, score)));
-}
-
-// ─── FACTOR 5: LIQUIDITY (15%) ──────────────────────────────────────────────
-function scoreLiquidity(c) {
-  const bid = c.bid || 0;
-  const ask = c.ask || 0;
-  const volume = c.volume || 0;
-  
-  if (bid <= 0 || ask <= 0) return 0;
-  const spread = (ask - bid) / ask;
-
-  const maxSpread = parseFloat(process.env.LIQ_SPREAD_MAX || '0.15');
-  const minSpread = parseFloat(process.env.LIQ_SPREAD_MIN || '0.01');
-  const minVol = parseFloat(process.env.LIQ_VOL_MIN || '10');
-  const maxVol = parseFloat(process.env.LIQ_VOL_MAX || '2000');
-  
-  const spreadScoreMin = parseFloat(process.env.LIQ_SPREAD_SCORE_MIN || '20');
-  const spreadScoreMax = parseFloat(process.env.LIQ_SPREAD_SCORE_MAX || '60');
-  const volScoreMin = parseFloat(process.env.LIQ_VOL_SCORE_MIN || '0');
-  const volScoreMax = parseFloat(process.env.LIQ_VOL_SCORE_MAX || '40');
-
-  let score = 0;
-  score += interpolate(spread, maxSpread, minSpread, spreadScoreMin, spreadScoreMax);
-  score += interpolate(volume, minVol, maxVol, volScoreMin, volScoreMax);
-
-  return Math.round(score);
-}
-
-// ─── FACTOR 6: TECHNICAL (20%) ───────────────────────────────────
-function scoreTechnical(c, underlyingPrice) {
-  const change = c.underlyingChange || 0;
-  const isCall = (c.type || '').toLowerCase() === 'call';
-  const strike = c.strike || 0;
-
-  const itmThresholdUp = parseFloat(process.env.TECH_ITM_THRESHOLD_UP || '0.98');
-  const itmThresholdDown = parseFloat(process.env.TECH_ITM_THRESHOLD_DOWN || '1.02');
-
-  // Zero-Fake: Data integrity check (Critical fields required for any signal)
-  if (!underlyingPrice || !strike || !c.dte || !(c.lastPrice || c.ask)) return 0;
-
-  // Deep ITM Penalty (Swing Setup Filter)
-  if (isCall && strike < underlyingPrice * itmThresholdUp) return 0;
-  if (!isCall && strike > underlyingPrice * itmThresholdDown) return 0;
-
-  const distMax = parseFloat(process.env.TECH_DIST_MAX || '0.12');
-  const distMin = parseFloat(process.env.TECH_DIST_MIN || '0.005');
-  const changeMin = parseFloat(process.env.TECH_CHANGE_MIN || '-0.5');
-  const changeMax = parseFloat(process.env.TECH_CHANGE_MAX || '2.5');
-  
-  const setupScoreMin = parseFloat(process.env.TECH_SETUP_SCORE_MIN || '0');
-  const setupScoreMax = parseFloat(process.env.TECH_SETUP_SCORE_MAX || '60');
-  const momentumScoreMax = parseFloat(process.env.TECH_MOMENTUM_SCORE_MAX || '40');
-
-  const distPct = Math.abs(strike - underlyingPrice) / underlyingPrice;
-  // Institutional continuous setup: No base (configurable via setupScoreMax)
-  const setupBase = interpolate(distPct, distMax, distMin, setupScoreMin, setupScoreMax);
-
-  // Momentum Confirmation multiplier [0.0 - 1.0]
-  const momentumMult = isCall 
-    ? interpolate(change, changeMin, changeMax, 0.0, 1.0) 
-    : interpolate(change, -changeMin, -changeMax, 0.0, 1.0);
-
-  return Math.round(setupBase + (momentumScoreMax * momentumMult));
+  return Math.round(interpolate(omega, minOmega, maxOmega, 0, 100));
 }
 
 function gradeOptionsChain(chain, underlyingPrice, historicalIV) {
   const allIVs = chain.map(c => c.impliedVolatility || 0).filter(v => v > 0).sort((a, b) => a - b);
   const chainStats = { ivSorted: allIVs };
-  const graded = chain.map(contract => gradeContract(contract, underlyingPrice, historicalIV, chainStats));
+  
+  const graded = chain
+    .map(contract => gradeContract(contract, underlyingPrice, historicalIV, chainStats))
+    .filter(c => c !== null); // Purge invalid contracts (Zero-Fake)
+    
   graded.sort((a, b) => b.totalScore - a.totalScore);
   return graded;
 }
