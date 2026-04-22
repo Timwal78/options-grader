@@ -4,6 +4,7 @@
 const { fetchOptionsChain } = require('./optionsData.cjs');
 const { gradeOptionsChain } = require('./grader.cjs');
 const { sendOptionsAlert, sendBatchSummary, isEnabled } = require('./discordAlerts.cjs');
+const { generateThesis } = require('./aiService.cjs');
 
 let hotSetups = [];
 
@@ -58,6 +59,13 @@ async function refreshDiscovery() {
     const newSetups = [];
     const megaCaps = (process.env.DISCOVERY_MEGA_CAPS || 'SPY,AAPL,MSFT,NVDA,TSLA,GOOGL,AMZN,META,QQQ').split(',');
     let megaCapCount = 0;
+    const MAX_MEGA_CAPS = parseInt(process.env.DISCOVERY_MAX_MEGA_CAPS || '2');
+
+    // ── IWM 0DTE Priority ──
+    const iwmPriority = uniqueTickers.includes('IWM');
+    if (iwmPriority) {
+       priorityTickers.unshift('IWM'); // Force IWM to start of line
+    }
 
     const discordEnabled = isEnabled();
     console.log(`[DISCOVERY] Siphoning ${priorityTickers.length} movers for setups... | Discord: ${discordEnabled ? 'ON' : 'OFF'}`);
@@ -65,10 +73,14 @@ async function refreshDiscovery() {
     for (const symbol of [...new Set(priorityTickers)]) {
       try {
         const isMegaCap = megaCaps.includes(symbol);
-        if (isMegaCap && megaCapCount >= 3) continue;
-        if (isMegaCap) megaCapCount++;
+        
+        // ── Rule 3: Benchmark Capping & Filtering ──
+        if (isMegaCap) {
+           if (megaCapCount >= MAX_MEGA_CAPS) continue;
+           // Benchmarks stay for context but are capped at minimal (Law 2)
+        }
 
-        const chain = await fetchOptionsChain(symbol, { polygonKey: process.env.POLYGON_API_KEY }); // Force Polygon for Discovery
+        const chain = await fetchOptionsChain(symbol, { polygonKey: process.env.POLYGON_API_KEY });
         if (!chain || !chain.contracts) continue;
 
         const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
@@ -76,17 +88,35 @@ async function refreshDiscovery() {
         const minDiscoveryScore = parseFloat(process.env.DISCOVERY_MIN_SCORE || '67');
         const setups = (graded || []).filter(c => {
           if (c.totalScore < minDiscoveryScore) return false;
+          
+          // Large Cap Grade Filter (Only allow A+ for benchmarks)
+          if (isMegaCap && c.totalScore < 90) return false;
+
           // Directional filter: Puts must be OTM (Strike < Price), Calls must be OTM (Strike > Price)
           if (c.type === 'put'  && c.strike >= chain.underlyingPrice) return false;
           if (c.type === 'call' && c.strike <= chain.underlyingPrice) return false;
+          
+          // IWM 0DTE Priority: Ensure we keep 0DTE for IWM if it passes score
+          if (symbol === 'IWM' && c.dte === 0) return true;
+          
           return true;
         });
+
+        if (isMegaCap && setups.length > 0) megaCapCount++;
 
         
         if (setups.length > 0) {
            console.log(`[DISCOVERY] Found setups for ${symbol}. Top Grade: ${setups[0].grade}`);
            // Fire Discord alerts for qualifying setups
            for (const s of setups.slice(0, 3)) {
+             // ── Institutional Logic: Fetch AI Thesis before Alerting ──
+             let thesis = "Analysis pending...";
+             try {
+                thesis = await generateThesis(s, chain.underlyingPrice);
+             } catch (e) {
+                console.warn(`[AI] Thesis generation failed for ${symbol}:`, e.message);
+             }
+
              const alertPayload = {
                ticker: symbol,
                price: chain.underlyingPrice,
@@ -100,6 +130,10 @@ async function refreshDiscovery() {
                moneyness: s.moneyness || (s.inTheMoney ? 'ITM' : 'OTM'),
                vol: s.volume,
                oi: s.openInterest,
+               delta: s.delta,
+               theta: s.theta,
+               iv: s.impliedVolatility,
+               thesis: thesis,
                source: chain.source || 'Yahoo Finance'
              };
              sendOptionsAlert(alertPayload).catch(() => {});

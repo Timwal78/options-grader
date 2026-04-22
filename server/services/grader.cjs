@@ -93,16 +93,24 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
 }
 
 function getLetterGrade(score) {
-  if (score >= 80) return 'A';
-  if (score >= 60) return 'B';
-  if (score >= 45) return 'C';
+  const gradeA = parseInt(process.env.S3_GRADE_A || '80');
+  const gradeB = parseInt(process.env.S3_GRADE_B || '60');
+  const gradeC = parseInt(process.env.S3_GRADE_C || '45');
+
+  if (score >= gradeA) return 'A';
+  if (score >= gradeB) return 'B';
+  if (score >= gradeC) return 'C';
   return 'D';
 }
 
 function getGradeColor(score) {
-  if (score >= 80) return '#00E676'; // Institutional Green
-  if (score >= 60) return '#FFD740'; // Institutional Gold
-  if (score >= 45) return '#FF9100'; // Institutional Orange
+  const gradeA = parseInt(process.env.S3_GRADE_A || '80');
+  const gradeB = parseInt(process.env.S3_GRADE_B || '60');
+  const gradeC = parseInt(process.env.S3_GRADE_C || '45');
+
+  if (score >= gradeA) return '#00E676'; // Institutional Green
+  if (score >= gradeB) return '#FFD740'; // Institutional Gold
+  if (score >= gradeC) return '#FF9100'; // Institutional Orange
   return '#FF4444';                // Institutional Red
 }
 
@@ -156,7 +164,7 @@ function scoreRiskReward(c, underlyingPrice) {
   const potentialGain = isCall ? Math.max(0, targetPrice - strike) - premium : Math.max(0, strike - targetPrice) - premium;
   let ratio = Math.max(0, potentialGain / premium);
 
-  // institutional logic: penalize high IV "lotto" setups aggressively (Configurable decay)
+  // ── Institutional Law: Aggressive IV Decay Penalty ──
   const ivPenaltyThreshold = parseFloat(process.env.RR_IV_PENALTY_THRESHOLD || '0.50');
   if (iv > ivPenaltyThreshold) {
     const penaltyPower = parseFloat(process.env.RR_IV_PENALTY_POWER || '3');
@@ -166,10 +174,8 @@ function scoreRiskReward(c, underlyingPrice) {
 
   const minRatio = parseFloat(process.env.RR_RATIO_MIN || '0.5');
   const maxRatio = parseFloat(process.env.RR_RATIO_MAX || '2.5');
-  const rrScoreMin = parseFloat(process.env.RR_SCORE_MIN || '0');
-  const rrScoreMax = parseFloat(process.env.RR_SCORE_MAX || '100');
-
-  return Math.round(interpolate(ratio, minRatio, maxRatio, rrScoreMin, rrScoreMax));
+  
+  return Math.round(interpolate(ratio, minRatio, maxRatio, 0, 100));
 }
 
 // ─── FACTOR 3: IV PERCENTILE (10%) ──────────────────────────────────────────
@@ -199,33 +205,35 @@ function scoreProbability(c, underlyingPrice) {
   const strike = c.strike;
   const premium = c.lastPrice || c.ask;
   const iv = c.impliedVolatility;
-  const dte = c.dte;
+  const dte = Math.max(0.1, c.dte);
   if (!underlyingPrice || !strike || !iv || !dte || !premium) return 0;
 
   const isCall = (c.type || '').toLowerCase() === 'call';
   const breakeven = isCall ? strike + premium : strike - premium;
   const T = dte / 365;
+  
+  // High-precision BS D2 calculation
   const d2 = (Math.log(underlyingPrice / breakeven) - 0.5 * iv * iv * T) / (iv * Math.sqrt(T));
   const probProfit = isCall ? normCDF(d2) : normCDF(-d2);
+
+  // ── Gamma Risk Hardening ──
+  // 0DTE has extreme gamma risk. We penalize theoretical probability 
+  // unless the setup is already deeply confirmed (Prob > 60%).
+  let gammaModifier = 1.0;
+  if (c.dte < 1 && probProfit < 0.60) {
+      gammaModifier = 0.5; // OTM 0DTE lottery traps are suppressed
+  }
 
   const minProb = parseFloat(process.env.PROB_MIN || '0.10');
   const maxProb = parseFloat(process.env.PROB_MAX || '0.40');
   const scoreBaseMin = parseFloat(process.env.PROB_SCORE_BASE_MIN || '35');
   const scoreBaseMax = parseFloat(process.env.PROB_SCORE_BASE_MAX || '65');
   
-  const dteMin = parseFloat(process.env.PROB_DTE_MIN || '3');
-  const dteMax = parseFloat(process.env.PROB_DTE_MAX || '21');
-  const scoreDteMin = parseFloat(process.env.PROB_SCORE_DTE_MIN || '5');
-  const scoreDteMax = parseFloat(process.env.PROB_SCORE_DTE_MAX || '35');
-
-  const dteDecayStart = parseFloat(process.env.PROB_DTE_DECAY_START || '60');
-  const dteDecayEnd = parseFloat(process.env.PROB_DTE_DECAY_END || '180');
-  const dteDecayValStart = parseFloat(process.env.PROB_DTE_DECAY_VAL_START || '1.0');
-  const dteDecayValEnd = parseFloat(process.env.PROB_DTE_DECAY_VAL_END || '0.2');
-
-  // Reward realistic OTM probabilities
   let score = interpolate(probProfit, minProb, maxProb, scoreBaseMin, scoreBaseMax);
-  score += interpolate(dte, dteMin, dteMax, scoreDteMin, scoreDteMax) * (dte > dteDecayStart ? interpolate(dte, dteDecayStart, dteDecayEnd, dteDecayValStart, dteDecayValEnd) : 1.0);
+  
+  // Reward Time Value (up to a point)
+  const dteScore = interpolate(dte, 1, 21, 5, 35);
+  score += dteScore * gammaModifier;
 
   return Math.round(Math.min(100, Math.max(0, score)));
 }

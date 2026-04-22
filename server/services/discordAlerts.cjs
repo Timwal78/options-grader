@@ -69,11 +69,13 @@ async function sendOptionsAlert(setup) {
     embeds: [{
       title: `${sideEmoji} ${gradeEmoji} SML INSTITUTIONAL INTEL: ${setup.ticker} (${setup.side})`,
       color: embedColor,
+      description: `**AI THESIS**: *${setup.thesis || 'Manual audit required.'}*`,
       fields: [
         { name: '🏛️ SIGNAL QUALITY', value: `**Grade**: \`${setup.grade}\` [**${setup.moneyness || 'N/A'}**]\n**Score**: \`${setup.score}/100\``, inline: true },
         { name: '🎯 TARGET STACK', value: `**Strike**: \`$${setup.strike}\`\n**Exp**: \`${setup.expiration || 'N/A'}\``, inline: true },
         { name: '📉 MARKET CONTEXT', value: `**Price**: \`$${setup.price?.toFixed(2) || 'N/A'}\`\n${changeArrow} **Change**: \`${changeStr}\``, inline: true },
-        { name: '⚡ EXECUTION DATA', value: `**Volume**: \`${(setup.vol || 0).toLocaleString()}\` | **OI**: \`${(setup.oi || 0).toLocaleString()}\``, inline: false },
+        { name: '⚡ INSTITUTIONAL GREEKS', value: `**Delta**: \`${setup.delta?.toFixed(2) || 'N/A'}\` | **Theta**: \`${setup.theta?.toFixed(3) || 'N/A'}\` | **IV**: \`${((setup.iv || 0) * 100).toFixed(1)}%\``, inline: false },
+        { name: '💎 LIQUIDITY STATUS', value: `**Volume**: \`${(setup.vol || 0).toLocaleString()}\` | **OI**: \`${(setup.oi || 0).toLocaleString()}\` | **Source**: \`${setup.source}\``, inline: false },
       ],
       footer: {
         text: 'ScriptMasterLabs™ • Operational Intelligence • Zero-Fake Policy enforced'
