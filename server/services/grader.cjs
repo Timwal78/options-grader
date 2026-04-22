@@ -33,6 +33,17 @@ function interpolate(val, inMin, inMax, outMin, outMax) {
 }
 
 /**
+ * LETHAL SUITE | Options Grader Engine (Institutional v4.5)
+ * (c) 2026 ScriptMasterLabs™
+ * 
+ * LAW ADHERENCE: This service strictly follows THE DEVELOPER MANIFESTO.
+ * - 100% Data-Driven: No mock arrays, no simulated signals.
+ * - S3 Parity: A=80, B=60, C=45 thresholds enforced.
+ */
+const { exec } = require('child_process');
+const fs = require('fs');
+
+/**
  * Grade a single options contract on 6 factors (0-100 each)
  */
 function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
@@ -82,21 +93,17 @@ function gradeContract(contract, underlyingPrice, historicalIV, chainStats) {
 }
 
 function getLetterGrade(score) {
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_APLUS || '90')) return 'A+';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_A || '85')) return 'A';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_BPLUS || '80')) return 'B+';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_B || '72')) return 'B';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_CPLUS || '62')) return 'C+';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_C || '50')) return 'C';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_D || '35')) return 'D';
-  return 'F';
+  if (score >= 80) return 'A';
+  if (score >= 60) return 'B';
+  if (score >= 45) return 'C';
+  return 'D';
 }
 
 function getGradeColor(score) {
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_BPLUS || '80')) return '#00E676';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_CPLUS || '62')) return '#FFD740';
-  if (score >= parseFloat(process.env.GRADE_THRESHOLD_C || '50')) return '#FF9100';
-  return '#FF4444';
+  if (score >= 80) return '#00E676'; // Institutional Green
+  if (score >= 60) return '#FFD740'; // Institutional Gold
+  if (score >= 45) return '#FF9100'; // Institutional Orange
+  return '#FF4444';                // Institutional Red
 }
 
 // ─── FACTOR 1: GREEKS (20%) ─────────────────────────────────────────
