@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// My Options Grader — API Server
+// The Options Edge™ — API Server v5.0
 // by ScriptMasterLabs™
+// SqueezeOS Pro-Model Dynamic Discovery
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const express = require('express');
@@ -10,7 +11,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { fetchOptionsChain } = require('./services/optionsData.cjs');
 const { gradeOptionsChain } = require('./services/grader.cjs');
 const { generateThesis } = require('./services/aiService.cjs');
-const { startDiscoveryEngine, getHotSetups } = require('./services/discoveryService.cjs');
+const { startDiscoveryEngine, getHotSetups, getConvictionPlays } = require('./services/discoveryService.cjs');
 const { getAuthUrl, exchangeCode, loadTokens } = require('./services/schwabService.cjs');
 const { createCheckoutSession, handleWebhook, getTier } = require('./services/stripe.cjs');
 
@@ -29,8 +30,9 @@ app.use(express.json());
 
     app.listen(PORT, () => {
       console.log(`\n═══════════════════════════════════════════════`);
-      console.log(`  My Options Grader — ScriptMasterLabs™`);
+      console.log(`  The Options Edge™ — ScriptMasterLabs™`);
       console.log(`  Server running on port ${PORT}`);
+      console.log(`  Mode: SqueezeOS Pro-Model Dynamic Discovery`);
       console.log(`  Priority: SCHWAB → POLYGON → YAHOO`);
       console.log(`  BYOK: Tradier, Polygon, OpenAI supported`);
       console.log(`═══════════════════════════════════════════════\n`);
@@ -68,6 +70,19 @@ app.get('/api/flow', (req, res) => {
   try {
     const setups = getHotSetups();
     res.json({ setups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Conviction Plays — AMC, GME, IWM 0DTE
+ * The ONLY allowed watchlist items. Full strike/date/action.
+ */
+app.get('/api/conviction', (req, res) => {
+  try {
+    const plays = getConvictionPlays();
+    res.json({ plays });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -155,7 +170,7 @@ app.post('/api/scan', async (req, res) => {
       limited: graded.length > maxResults,
       hiddenCount: Math.max(0, graded.length - maxResults),
       brand: {
-        name: 'My Options Grader',
+        name: 'The Options Edge™',
         by: 'ScriptMasterLabs™',
         url: 'www.scriptmasterlabs.com'
       }
@@ -204,7 +219,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
 // ─── HEALTH CHECK ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'My Options Grader', brand: 'ScriptMasterLabs™', version: '2.0.0' });
+  res.json({ status: 'ok', service: 'The Options Edge™', brand: 'ScriptMasterLabs™', version: '5.0.0' });
 });
 
 // ─── BYOK KEY VALIDATION ────────────────────────────────────────────────────
