@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LETHAL SUITE | SML Command Center</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header>
+            <div class="logo">
+                <span class="symbol">⚡</span>
+                <h1>LETHAL SUITE <span class="accent">COMMAND CENTER</span></h1>
+            </div>
+            <div class="system-status">
+                <div class="status-indicator live"></div>
+                <span class="status-text">NETWORK: ACTIVE</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="service-grid">
+                <!-- S3 DECISION ENGINE -->
+                <div class="service-card" id="card-s3">
+                    <div class="card-header">
+                        <h2>S3 ENGINE</h2>
+                        <span class="port">PORT 8180</span>
+                    </div>
+                    <div class="health-display">
+                        <div class="indicator" id="health-s3"></div>
+                        <span class="status" id="status-s3">OFFLINE</span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="label">STATE</span>
+                            <span class="value" id="metrics-s3-state">---</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">CONFIDENCE</span>
+                            <span class="value" id="metrics-s3-conf">--%</span>
+                        </div>
+                    </div>
+                    <a href="../audit_s3.md" class="audit-link">VIEW FORENSIC AUDIT</a>
+                </div>
+
+                <!-- OPTIONS GRADER -->
+                <div class="service-card" id="card-grader">
+                    <div class="card-header">
+                        <h2>OPTIONS GRADER</h2>
+                        <span class="port">PORT 3001</span>
+                    </div>
+                    <div class="health-display">
+                        <div class="indicator" id="health-grader"></div>
+                        <span class="status" id="status-grader">OFFLINE</span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="label">VERSION</span>
+                            <span class="value" id="metrics-grader-ver">v2.0.0</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">DISCOVERY</span>
+                            <span class="value" id="metrics-grader-disc">ACTIVE</span>
+                        </div>
+                    </div>
+                    <a href="../audit_options_grader.md" class="audit-link">VIEW FORENSIC AUDIT</a>
+                </div>
+
+                <!-- ARGUS OMEGA -->
+                <div class="service-card" id="card-omega">
+                    <div class="card-header">
+                        <h2>ARGUS OMEGA</h2>
+                        <span class="port">PORT 8181</span>
+                    </div>
+                    <div class="health-display">
+                        <div class="indicator" id="health-omega"></div>
+                        <span class="status" id="status-omega">OFFLINE</span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="label">FUSION</span>
+                            <span class="value" id="metrics-omega-fusion">PARITY ✅</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">MODE</span>
+                            <span class="value" id="metrics-omega-mode">INSTITUTIONAL</span>
+                        </div>
+                    </div>
+                    <a href="../audit_argus_omega.md" class="audit-link">VIEW FORENSIC AUDIT</a>
+                </div>
+
+                <!-- ECHO FORGE -->
+                <div class="service-card" id="card-echo">
+                    <div class="card-header">
+                        <h2>ECHO FORGE</h2>
+                        <span class="port">PORT 8000</span>
+                    </div>
+                    <div class="health-display">
+                        <div class="indicator" id="health-echo"></div>
+                        <span class="status" id="status-echo">OFFLINE</span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="label">MATCHING</span>
+                            <span class="value" id="metrics-echo-match">READY</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">SINUSOID</span>
+                            <span class="value" id="metrics-echo-cycle">147d SYNC</span>
+                        </div>
+                    </div>
+                    <a href="../audit_echo_forge.md" class="audit-link">VIEW FORENSIC AUDIT</a>
+                </div>
+            </section>
+
+            <section class="signal-tape">
+                <div class="tape-header">
+                    <h2>LIVE INSTITUTIONAL SIGNAL TAPE</h2>
+                    <span class="tag">ZERO-FAKE STREAM</span>
+                </div>
+                <div class="tape-content" id="signal-feed">
+                    <div class="signal-placeholder">Awaiting high-conviction signals...</div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="brand">ScriptMasterLabs™ | Institutional Lethal Suite v4.0</div>
+            <div class="time" id="clock">00:00:00 UTC</div>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
