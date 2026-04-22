@@ -3,7 +3,12 @@
 // by ScriptMasterLabs™
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+let stripe;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+} else {
+  console.warn('[STRIPE] No STRIPE_SECRET_KEY found. Payments disabled.');
+}
 const fs = require('fs');
 const path = require('path');
 
@@ -43,6 +48,7 @@ function getTier(userId) {
  * Create a Stripe Checkout Session
  */
 async function createCheckoutSession(userId, tier) {
+  if (!stripe) throw new Error('Stripe is not configured on this server.');
   const priceIds = {
     starter: process.env.PRICE_STARTER_ID || 'price_123_starter',
     pro: process.env.PRICE_PRO_ID || 'price_123_pro',
@@ -65,6 +71,7 @@ async function createCheckoutSession(userId, tier) {
  * Handle Stripe Webhooks
  */
 async function handleWebhook(sig, body) {
+  if (!stripe) throw new Error('Stripe is not configured on this server.');
   let event;
   try {
     event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET);
