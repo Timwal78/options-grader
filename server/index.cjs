@@ -22,25 +22,33 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize Tokens for the session (SqueezeOS: Persistent Handshake)
+// NOTE: Token loading is non-blocking — server starts regardless of Schwab auth state.
 (async () => {
   try {
     await loadTokens();
+  } catch (e) {
+    console.warn('[SERVER] Schwab token load failed (non-fatal):', e.message);
+    console.warn('[SERVER] Options grading via Polygon/Yahoo will still work.');
+  }
+  try {
     // Start the Manifest-Compliant Discovery Engine (100% FETCH)
     startDiscoveryEngine();
-
-    app.listen(PORT, () => {
-      console.log(`\n═══════════════════════════════════════════════`);
-      console.log(`  The Options Edge™ — ScriptMasterLabs™`);
-      console.log(`  Server running on port ${PORT}`);
-      console.log(`  Mode: SqueezeOS Pro-Model Dynamic Discovery`);
-      console.log(`  Priority: SCHWAB → POLYGON → YAHOO`);
-      console.log(`  BYOK: Tradier, Polygon, OpenAI supported`);
-      console.log(`═══════════════════════════════════════════════\n`);
-    });
   } catch (e) {
-    console.error('[SERVER] Startup error:', e.message);
+    console.warn('[SERVER] Discovery engine start failed (non-fatal):', e.message);
   }
 })();
+
+// Server always starts — token failures are non-fatal, not startup blockers
+app.listen(PORT, () => {
+  console.log(`\n═══════════════════════════════════════════════`);
+  console.log(`  The Options Edge™ — ScriptMasterLabs™`);
+  console.log(`  Server running on port ${PORT}`);
+  console.log(`  Mode: SqueezeOS Pro-Model Dynamic Discovery`);
+  console.log(`  Priority: SCHWAB → POLYGON → YAHOO`);
+  console.log(`  BYOK: Tradier, Polygon, OpenAI supported`);
+  console.log(`═══════════════════════════════════════════════\n`);
+});
+
 app.get('/api/auth/schwab/url', (req, res) => {
   try {
     res.json({ url: getAuthUrl() });
