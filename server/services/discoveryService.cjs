@@ -42,6 +42,8 @@ function purgeStaleSetups() {
   }
 }
 
+let isRefreshing = false;
+
 /**
  * The Market Explorer — SqueezeOS Pro Model
  * Uses Yahoo Finance to identify market movers dynamically.
@@ -49,6 +51,12 @@ function purgeStaleSetups() {
  * 100% FETCH / Zero Demo.
  */
 async function refreshDiscovery() {
+  if (isRefreshing) {
+    console.warn('[DISCOVERY] Cycle already in progress. Skipping...');
+    return;
+  }
+  isRefreshing = true;
+
   console.log(`[DISCOVERY] ════════════════════════════════════════════════════`);
   console.log(`[DISCOVERY] Dynamic Discovery Cycle Starting...`);
   console.log(`[DISCOVERY] Budget Range: $${DISCOVERY_MIN_PRICE} - $${DISCOVERY_MAX_PRICE}`);
@@ -76,6 +84,7 @@ async function refreshDiscovery() {
 
     if (allMovers.length === 0) {
       console.warn('[DISCOVERY] No movers returned. Market may be closed.');
+      isRefreshing = false;
       return;
     }
 
@@ -107,7 +116,7 @@ async function refreshDiscovery() {
     const discordEnabled = isEnabled();
     const minScore = parseFloat(process.env.DISCOVERY_MIN_SCORE || '65');
 
-    for (const symbol of uniqueTickers.slice(0, 80)) {
+    for (const symbol of uniqueTickers.slice(0, 40)) { // Reduced from 80 to 40 for speed/stability
       try {
         const chain = await fetchOptionsChain(symbol, { polygonKey: process.env.POLYGON_API_KEY });
         if (!chain || !chain.contracts) continue;
@@ -204,6 +213,8 @@ async function refreshDiscovery() {
 
   } catch (err) {
     console.error('[DISCOVERY] Engine error:', err.message);
+  } finally {
+    isRefreshing = false;
   }
 }
 
@@ -313,5 +324,6 @@ function startDiscoveryEngine(intervalMs = 60000) {
   refreshDiscovery();
   setInterval(refreshDiscovery, intervalMs);
 }
+
 
 module.exports = { refreshDiscovery, getHotSetups, getConvictionPlays, startDiscoveryEngine };
