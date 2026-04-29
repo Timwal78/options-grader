@@ -240,6 +240,12 @@ app.post('/api/validate-key', async (req, res) => {
     } else if (provider === 'polygon') {
       const data = await fetchOptionsChain('AAPL', { polygonKey: key });
       res.json({ valid: true, provider, message: `Connected! Found ${data.contracts.length} contracts.` });
+    } else if (provider === 'alpaca') {
+      const { fetchAlpaca } = require('./services/optionsData.cjs');
+      // For Alpaca, key is an object: { keyId, secret }
+      const byokConfig = key && key.keyId ? { alpacaKey: key.keyId, alpacaSecret: key.secret } : {};
+      const data = await fetchAlpaca('AAPL', byokConfig);
+      res.json({ valid: true, provider, message: `Connected! Found ${data.contracts.length} contracts.` });
     } else {
       res.json({ valid: false, message: 'Unknown provider' });
     }

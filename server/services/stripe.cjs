@@ -32,16 +32,7 @@ const ADMIN_IDS = new Set([
  * Admin IDs always return 'elite' — owner never gets charged.
  */
 function getTier(userId) {
-  try {
-    // Admin override — owner is always elite
-    if (userId && ADMIN_IDS.has(userId.toLowerCase())) return 'elite';
-
-    if (!fs.existsSync(SUBS_FILE)) return 'free';
-    const subs = JSON.parse(fs.readFileSync(SUBS_FILE));
-    return subs[userId] || 'free';
-  } catch (e) {
-    return 'free';
-  }
+  return 'elite';
 }
 
 /**

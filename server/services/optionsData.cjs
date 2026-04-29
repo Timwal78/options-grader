@@ -53,8 +53,15 @@ async function fetchOptionsChain(ticker, byokConfig = {}) {
     try {
       return await fetchTradier(ticker, byokConfig.tradierKey);
     } catch (e) {
-      console.warn(`[DATA] Tradier failed for ${ticker}: ${e.message} — trying Yahoo`);
+      console.warn(`[DATA] Tradier failed for ${ticker}: ${e.message} — trying Alpaca`);
     }
+  }
+
+  // 3.5 Alpaca (Hardcoded)
+  try {
+    return await fetchAlpaca(ticker);
+  } catch (e) {
+    console.warn(`[DATA] Alpaca failed for ${ticker}: ${e.message} — trying Yahoo`);
   }
 
   // 4. Free Fallback — Yahoo Finance
@@ -259,6 +266,86 @@ async function fetchTradier(ticker, apiKey) {
   }
 }
 
+// ─── ALPACA (HARDCODED/BYOK) ────────────────────────────────────────────────
+async function fetchAlpaca(ticker, byokConfig = {}) {
+  const apiKey = byokConfig.alpacaKey || 'AKV39V1APUHWMFCQ2GA0';
+  const apiSecret = byokConfig.alpacaSecret || 'edlztEfaib5gGj0hQbfoV4Ezm6vdy8FnuFfW9Mx9';
+
+  const url = `https://data.alpaca.markets/v1beta1/options/snapshots/${ticker}?feed=indicative&limit=250`;
+  const res = await fetch(url, {
+    headers: {
+      'APCA-API-KEY-ID': apiKey,
+      'APCA-API-SECRET-KEY': apiSecret,
+      'Accept': 'application/json'
+    }
+  });
+  
+  if (!res.ok) {
+    const errText = await res.text();
+    let parsedErr = errText;
+    try {
+      const j = JSON.parse(errText);
+      parsedErr = JSON.stringify(j);
+    } catch(e) {}
+    throw new Error(`Alpaca request failed (HTTP ${res.status}): ${parsedErr}`);
+  }
+  
+  const data = await safeJson(res);
+  const snapshots = data.snapshots || {};
+  
+  const contracts = [];
+  
+  const yfQuote = await (await getYF()).quote(ticker);
+  const underlyingPrice = yfQuote.regularMarketPrice || 0;
+  const prevClose = yfQuote.regularMarketPreviousClose || underlyingPrice;
+  const underlyingChange = prevClose > 0 ? ((underlyingPrice - prevClose) / prevClose) * 100 : 0;
+
+  for (const [contractSym, snap] of Object.entries(snapshots)) {
+    const trade = snap.latestTrade || {};
+    const quote = snap.latestQuote || {};
+    
+    const match = contractSym.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+    let strike = 0, type = 'call', expiration = '';
+    if (match) {
+       type = match[3] === 'C' ? 'call' : 'put';
+       strike = parseInt(match[4], 10) / 1000;
+       const yr = '20' + match[2].substring(0, 2);
+       const mo = match[2].substring(2, 4);
+       const da = match[2].substring(4, 6);
+       expiration = `${yr}-${mo}-${da}`;
+    } else {
+      continue;
+    }
+    
+    const bid = quote.bp || 0;
+    const ask = quote.ap || 0;
+    const lastPrice = trade.p || ((bid + ask) / 2) || 0;
+    const volume = trade.v || 0;
+    const dte = Math.max(0, Math.ceil((new Date(expiration) - new Date()) / 864e5));
+    
+    contracts.push({
+      contractSymbol: contractSym,
+      type, strike, expiration, dte,
+      bid, ask, lastPrice, volume, openInterest: 0,
+      impliedVolatility: snap.impliedVolatility || 0,
+      delta: estimateDelta({ strike }, type, underlyingPrice),
+      gamma: estimateGamma({ strike }, underlyingPrice),
+      theta: estimateTheta({ lastPrice: lastPrice || 1 }, Math.max(1, dte)),
+      vega: estimateVega({ lastPrice: lastPrice || 1 }, Math.max(1, dte)),
+      inTheMoney: type === 'call' ? underlyingPrice > strike : underlyingPrice < strike,
+      underlyingChange
+    });
+  }
+
+  return {
+    ticker: ticker.toUpperCase(), underlyingPrice, underlyingChange,
+    historicalIV: estimateHistoricalIV(contracts, underlyingPrice),
+    expirationDates: [...new Set(contracts.map(c => c.expiration))].sort(),
+    contracts, source: 'Alpaca (Hardcoded)',
+    timestamp: new Date().toISOString()
+  };
+}
+
 // ─── YAHOO FINANCE (FREE FALLBACK) ──────────────────────────────────────────
 let yahooFinance = null;
 async function getYF() {
@@ -404,4 +491,4 @@ function estimateHistoricalIV(contracts, underlyingPrice) {
     : sorted[mid];
 }
 
-module.exports = { fetchOptionsChain };
+module.exports = { fetchOptionsChain, fetchAlpaca };

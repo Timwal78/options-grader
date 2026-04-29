@@ -457,13 +457,16 @@ function Settings({ byokKeys, saveByokKeys }) {
         {[
           { id: 'polygonKey', label: 'Polygon.io API Key', provider: 'polygon', desc: 'Real-time market data — free tier available' },
           { id: 'tradierKey', label: 'Tradier API Key', provider: 'tradier', desc: 'Free developer account — real options data with Greeks' },
-          { id: 'alpacaKey', label: 'Alpaca API Key', provider: 'alpaca', desc: 'Market data backup — paper or live' }
-        ].map(({ id, label, provider, desc }) => (
+          { id: 'alpacaKey', secretId: 'alpacaSecret', label: 'Alpaca API Key & Secret', provider: 'alpaca', desc: 'Market data backup — paper or live' }
+        ].map(({ id, secretId, label, provider, desc }) => (
           <div className="key-input-group" key={id}>
             <label>{label} <span style={{ color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none' }}>— {desc}</span></label>
-            <div className="key-input-row">
-              <input className="key-input" type="password" placeholder="Paste API key..." value={byokKeys[id] || ''} onChange={e => updateScreen(id, e.target.value)} />
-              <button className={`test-btn ${testResults[provider] === 'success' ? 'success' : ''}`} onClick={() => testKey(provider, byokKeys[id])}>
+            <div className="key-input-row" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input className="key-input" type="password" placeholder={secretId ? "Key ID..." : "Paste API key..."} value={byokKeys[id] || ''} onChange={e => updateScreen(id, e.target.value)} />
+              {secretId && (
+                <input className="key-input" type="password" placeholder="Secret Key..." value={byokKeys[secretId] || ''} onChange={e => updateScreen(secretId, e.target.value)} />
+              )}
+              <button className={`test-btn ${testResults[provider] === 'success' ? 'success' : ''}`} onClick={() => testKey(provider, secretId ? { keyId: byokKeys[id], secret: byokKeys[secretId] } : byokKeys[id])}>
                 {testResults[provider] === 'testing' ? '...' : testResults[provider] === 'success' ? '✓ Connected' : 'Test'}
               </button>
             </div>
