@@ -38,6 +38,12 @@ async function safeJsonParse(res) {
 }
 
 async function exchangeCode(code) {
+  const CLIENT_ID = process.env.SCHWAB_CLIENT_ID || process.env.SCHWAB_APP_KEY;
+  const CLIENT_SECRET = process.env.SCHWAB_CLIENT_SECRET || process.env.SCHWAB_APP_SECRET;
+  const REDIRECT_URI = process.env.SCHWAB_REDIRECT_URI || 'https://127.0.0.1:8183/';
+
+  console.log(`[SCHWAB DEBUG] Exchanging code... Client ID: ${CLIENT_ID?.substring(0, 5)}... Redirect: ${REDIRECT_URI}`);
+
   const authHeader = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
   const body = new URLSearchParams({
