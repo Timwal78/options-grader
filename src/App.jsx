@@ -38,7 +38,14 @@ function App() {
   const [sortDir, setSortDir] = useState('desc');
   const [tier, setTier] = useState('elite');
   const [byokKeys, setByokKeys] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('og_byok') || '{}'); } catch { return {}; }
+    try { 
+      const keys = JSON.parse(localStorage.getItem('og_byok') || '{}');
+      if (!keys.alpacaKey) keys.alpacaKey = 'AKV39V1APUHWMFCQ2GA0';
+      if (!keys.alpacaSecret) keys.alpacaSecret = 'edlztEfaib5gGj0hQbfoV4Ezm6vdy8FnuFfW9Mx9';
+      return keys;
+    } catch { 
+      return { alpacaKey: 'AKV39V1APUHWMFCQ2GA0', alpacaSecret: 'edlztEfaib5gGj0hQbfoV4Ezm6vdy8FnuFfW9Mx9' }; 
+    }
   });
   const [scanHistory, setScanHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('og_history') || '[]'); } catch { return []; }
