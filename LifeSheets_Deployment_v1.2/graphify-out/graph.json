@@ -1,0 +1,68 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "generate_lifesheets.py",
+      "file_type": "code",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L1",
+      "id": "generate_lifesheets_py",
+      "community": 0,
+      "norm_label": "generate_lifesheets.py"
+    },
+    {
+      "label": "create_lifesheet()",
+      "file_type": "code",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L8",
+      "id": "lifesheets_deployment_v1_2_generate_lifesheets_create_lifesheet",
+      "community": 0,
+      "norm_label": "create_lifesheet()"
+    },
+    {
+      "label": "package_deployment()",
+      "file_type": "code",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L135",
+      "id": "lifesheets_deployment_v1_2_generate_lifesheets_package_deployment",
+      "community": 0,
+      "norm_label": "package_deployment()"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L4",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "generate_lifesheets_py",
+      "target": "lifesheets_deployment_v1_2_generate_lifesheets_create_lifesheet"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L135",
+      "weight": 1.0,
+      "source": "generate_lifesheets_py",
+      "target": "lifesheets_deployment_v1_2_generate_lifesheets_package_deployment",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "generate_lifesheets.py",
+      "source_location": "L143",
+      "weight": 1.0,
+      "source": "lifesheets_deployment_v1_2_generate_lifesheets_package_deployment",
+      "target": "lifesheets_deployment_v1_2_generate_lifesheets_create_lifesheet",
+      "confidence_score": 1.0
+    }
+  ],
+  "hyperedges": []
+}

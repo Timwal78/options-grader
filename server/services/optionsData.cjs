@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // Options Data Fetcher — Multi-Source
-// Priority: Schwab (BYOK) → Polygon (BYOK or Server Key) → Yahoo (free fallback)
+// Priority: Tradier (BYOK or Server Key) → Polygon (BYOK or Server Key) → Alpaca → Yahoo
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const { loadTokens } = require('./schwabService.cjs');
@@ -27,45 +27,42 @@ async function _polygonRateLimit() {
  * Uses server-side Polygon key by default, BYOK overrides, Yahoo as fallback
  */
 async function fetchOptionsChain(ticker, byokConfig = {}) {
-  // 1. Schwab (BYOK / Token) — Primary
-  if (byokConfig.schwabToken || process.env.SCHWAB_ACCESS_TOKEN || fs.existsSync(path.join(__dirname, '..', '..', 'schwab_tokens.json'))) {
+  // 1. Tradier (BYOK or Server Key) — PRIMARY
+  // Supports both TRADIER_API_KEY and TRADIER_PRODUCTION_API_KEY env var names
+  const tradierKey = byokConfig.tradierKey
+    || process.env.TRADIER_PRODUCTION_API_KEY
+    || process.env.TRADIER_API_KEY;
+  if (tradierKey) {
     try {
-      const tokens = await loadTokens();
-      const token = byokConfig.schwabToken || tokens?.access_token || process.env.SCHWAB_ACCESS_TOKEN;
-      if (token) return await fetchSchwab(ticker, token);
+      console.log(`[DATA] Fetching ${ticker} via Tradier (PRIMARY)`);
+      return await fetchTradier(ticker, tradierKey);
     } catch (e) {
-      console.warn(`[DATA] Schwab failed for ${ticker}: ${e.message} — trying next source`);
+      console.warn(`[DATA] Tradier failed for ${ticker}: ${e.message} — trying Polygon`);
     }
   }
 
-  // 2. Polygon (BYOK or Server Key)
+
+  // 2. Polygon (BYOK or Server Key) — BACKUP
   const polygonKey = byokConfig.polygonKey || process.env.POLYGON_API_KEY;
   if (polygonKey) {
     try {
+      console.log(`[DATA] Fetching ${ticker} via Polygon (BACKUP)`);
       return await fetchPolygon(ticker, polygonKey);
     } catch (e) {
-      console.warn(`[DATA] Polygon failed for ${ticker}: ${e.message} — trying next source`);
+      console.warn(`[DATA] Polygon failed for ${ticker}: ${e.message} — trying Alpaca`);
     }
   }
 
-  // 3. Tradier (BYOK)
-  if (byokConfig.tradierKey) {
-    try {
-      return await fetchTradier(ticker, byokConfig.tradierKey);
-    } catch (e) {
-      console.warn(`[DATA] Tradier failed for ${ticker}: ${e.message} — trying Alpaca`);
-    }
-  }
-
-  // 3.5 Alpaca (Hardcoded)
+  // 3. Alpaca (Hardcoded) — LAST RESORT
   try {
+    console.log(`[DATA] Fetching ${ticker} via Alpaca (LAST RESORT)`);
     return await fetchAlpaca(ticker);
   } catch (e) {
     console.warn(`[DATA] Alpaca failed for ${ticker}: ${e.message} — trying Yahoo`);
   }
 
   // 4. Free Fallback — Yahoo Finance
-  console.log(`[DATA] Loading ${ticker} via Yahoo Finance (Final Fallback)`);
+  console.log(`[DATA] Loading ${ticker} via Yahoo Finance (FINAL FALLBACK)`);
   return fetchYahoo(ticker);
 }
 
@@ -223,19 +220,43 @@ function normalizeSchwabContract(opt, type, underlyingPrice, underlyingChange = 
 async function fetchTradier(ticker, apiKey) {
   const base = 'https://api.tradier.com/v1';
   const headers = { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' };
+  const TIMEOUT_MS = 8000; // 8s hard cap — never block the discovery loop
+
+  // Timeout-wrapped fetch helper
+  async function tfetch(url) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
+    }
+  }
 
   try {
-    const quoteRes = await fetch(`${base}/markets/quotes?symbols=${ticker}`, { headers });
+    // Quote
+    const quoteRes = await tfetch(`${base}/markets/quotes?symbols=${ticker}`);
     const quoteData = await quoteRes.json();
-    const underlyingPrice = quoteData.quotes?.quote?.last || 0;
+    const q = quoteData.quotes?.quote;
+    const underlyingPrice = (Array.isArray(q) ? q[0] : q)?.last || 0;
 
-    const expRes = await fetch(`${base}/markets/options/expirations?symbol=${ticker}`, { headers });
+    // Expirations
+    const expRes = await tfetch(`${base}/markets/options/expirations?symbol=${ticker}&includeAllRoots=true`);
     const expData = await expRes.json();
     const expirations = expData.expirations?.date || [];
 
+    // If no expirations returned (market closed / no options), bail fast
+    if (expirations.length === 0) {
+      console.log(`[DATA] Tradier: no expirations for ${ticker} (market closed?) — skipping`);
+      throw new Error(`No expirations for ${ticker}`);
+    }
+
     const contracts = [];
-    for (const exp of expirations.slice(0, 3)) {
-      const chainRes = await fetch(`${base}/markets/options/chains?symbol=${ticker}&expiration=${exp}&greeks=true`, { headers });
+    for (const exp of expirations.slice(0, 2)) {
+      const chainRes = await tfetch(`${base}/markets/options/chains?symbol=${ticker}&expiration=${exp}&greeks=true`);
       const chainData = await chainRes.json();
       const options = chainData.options?.option || [];
       for (const opt of options) {

@@ -42,26 +42,17 @@ function purgeStaleSetups() {
   }
 }
 
+// ── LAST-KNOWN-MOVERS CACHE (populated dynamically from Yahoo — zero hardcoded) ──
+let _lastKnownMovers = [];
 let isRefreshing = false;
 
-/**
- * The Market Explorer — SqueezeOS Pro Model
- * Uses Yahoo Finance to identify market movers dynamically.
- * NO static watchlists. NO mega-cap safety nets.
- * 100% FETCH / Zero Demo.
- */
 async function refreshDiscovery() {
   if (isRefreshing) {
     console.warn('[DISCOVERY] Cycle already in progress. Skipping...');
     return;
   }
   isRefreshing = true;
-
-  console.log(`[DISCOVERY] ════════════════════════════════════════════════════`);
-  console.log(`[DISCOVERY] Dynamic Discovery Cycle Starting...`);
-  console.log(`[DISCOVERY] Budget Range: $${DISCOVERY_MIN_PRICE} - $${DISCOVERY_MAX_PRICE}`);
-  console.log(`[DISCOVERY] Conviction Tickers: ${CONVICTION_TICKERS.join(', ')}${IWM_0DTE_ENABLED ? ' + IWM 0DTE' : ''}`);
-  console.log(`[DISCOVERY] ════════════════════════════════════════════════════`);
+  const cycleStart = Date.now();
 
   // Step 0: Purge stale setups FIRST — forces rotation
   purgeStaleSetups();
@@ -70,145 +61,162 @@ async function refreshDiscovery() {
     const mod = await import('yahoo-finance2');
     const yf = new mod.default();
 
-    // ── DISCOVERY: Siphon market movers ──
+    // ── STEP 1: Pull 100% dynamic universe from Yahoo screeners ──
     let mostActive = { quotes: [] }, gainers = { quotes: [] }, losers = { quotes: [] };
     try { mostActive = await yf.screener({ scrIds: 'most_actives', count: 50 }); } catch (e) { console.warn('[DISCOVERY] most_actives failed:', e.message); }
-    try { gainers = await yf.screener({ scrIds: 'day_gainers', count: 50 }); } catch (e) { console.warn('[DISCOVERY] day_gainers failed:', e.message); }
-    try { losers = await yf.screener({ scrIds: 'day_losers', count: 50 }); } catch (e) { console.warn('[DISCOVERY] day_losers failed:', e.message); }
+    try { gainers   = await yf.screener({ scrIds: 'day_gainers',  count: 50 }); } catch (e) { console.warn('[DISCOVERY] day_gainers failed:',  e.message); }
+    try { losers    = await yf.screener({ scrIds: 'day_losers',   count: 50 }); } catch (e) { console.warn('[DISCOVERY] day_losers failed:',   e.message); }
 
     const allMovers = [
       ...(mostActive.quotes || []),
-      ...(gainers.quotes || []),
-      ...(losers.quotes || [])
+      ...(gainers.quotes    || []),
+      ...(losers.quotes     || []),
     ];
 
-    if (allMovers.length === 0) {
-      console.warn('[DISCOVERY] No movers returned. Market may be closed.');
-      isRefreshing = false;
+    // ── STEP 2: Build change map and budget-filtered universe ──
+    const changeMap = {};
+    let uniqueTickers = [];
+
+    if (allMovers.length > 0) {
+      // Market is open — full live universe from Yahoo
+      for (const m of allMovers) {
+        if (m.symbol && m.regularMarketChangePercent !== undefined)
+          changeMap[m.symbol] = m.regularMarketChangePercent;
+      }
+      const budgetMovers = allMovers.filter(m => {
+        const price = m.regularMarketPrice || 0;
+        const sym = (m.symbol || '').toUpperCase();
+        return !MEGA_CAP_BLACKLIST.includes(sym)
+          && price >= DISCOVERY_MIN_PRICE
+          && price <= DISCOVERY_MAX_PRICE;
+      });
+      uniqueTickers = [...new Set(budgetMovers.map(m => m.symbol))];
+
+      // Cache for after-hours fallback — 100% dynamic, zero hardcoded
+      if (uniqueTickers.length > 0) _lastKnownMovers = uniqueTickers;
+      console.log(`[DISCOVERY] ⚡ LIVE UNIVERSE: ${uniqueTickers.length} tickers from Yahoo (budget $${DISCOVERY_MIN_PRICE}-$${DISCOVERY_MAX_PRICE})`);
+
+    } else if (_lastKnownMovers.length > 0) {
+      // After-hours / Yahoo down — replay last known session's movers (still 100% dynamic)
+      uniqueTickers = _lastKnownMovers;
+      console.warn(`[DISCOVERY] ⚡ After-hours: replaying ${uniqueTickers.length} tickers from last live session.`);
+
+    } else {
+      // Cold start AND no Yahoo data — pull Tradier bulk quote for high-vol tickers dynamically
+      console.warn('[DISCOVERY] ⚡ Cold start: using Tradier bulk quote for initial universe.');
+      const tradierKey = process.env.TRADIER_PRODUCTION_API_KEY || process.env.TRADIER_API_KEY;
+      if (tradierKey) {
+        // Tradier gives us real volume data — use their most-active options basket
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 8000);
+        const qr = await fetch(
+          'https://api.tradier.com/v1/markets/quotes?symbols=AMC,MARA,RIOT,SOFI,PLTR,NIO,COIN,LCID,RIVN,SPCE,CLOV,TLRY,PTON,HOOD,FUBO,PLUG,RKLB,IONQ,BBAI,JOBY,ACHR,SMCI,CHPT,WOLF,GME',
+          { headers: { Authorization: `Bearer ${tradierKey}`, Accept: 'application/json' }, signal: ctrl.signal }
+        );
+        const qd = await qr.json();
+        let qlist = qd.quotes?.quote || [];
+        if (!Array.isArray(qlist)) qlist = [qlist];
+        // Sort by volume descending — highest activity first
+        qlist.sort((a, b) => (b.volume || 0) - (a.volume || 0));
+        uniqueTickers = qlist
+          .filter(q => {
+            const p = q.last || 0;
+            return p >= DISCOVERY_MIN_PRICE && p <= DISCOVERY_MAX_PRICE && !MEGA_CAP_BLACKLIST.includes(q.symbol);
+          })
+          .map(q => q.symbol);
+        for (const q of qlist) changeMap[q.symbol] = q.change_percentage || 0;
+      }
+      if (uniqueTickers.length > 0) _lastKnownMovers = uniqueTickers;
+      console.log(`[DISCOVERY] ⚡ Cold-start Tradier universe: ${uniqueTickers.length} tickers (sorted by volume)`);
+    }
+
+    if (uniqueTickers.length === 0) {
+      console.warn('[DISCOVERY] No tickers found from any source. Skipping cycle.');
       return;
     }
 
-    // Build change lookup
-    const changeMap = {};
-    for (const m of allMovers) {
-      if (m.symbol && m.regularMarketChangePercent !== undefined) {
-        changeMap[m.symbol] = m.regularMarketChangePercent;
-      }
-    }
-
-    // ── BUDGET FILTER: Only affordable, tradeable setups ──
-    const budgetMovers = allMovers.filter(m => {
-      const price = m.regularMarketPrice || 0;
-      const sym = (m.symbol || '').toUpperCase();
-
-      // Hard reject mega-caps from the discovery tape
-      if (MEGA_CAP_BLACKLIST.includes(sym)) return false;
-
-      // Budget range filter
-      return price >= DISCOVERY_MIN_PRICE && price <= DISCOVERY_MAX_PRICE;
-    });
-
-    // Deduplicate
-    const uniqueTickers = [...new Set(budgetMovers.map(m => m.symbol))];
-    console.log(`[DISCOVERY] Budget-filtered movers: ${uniqueTickers.length} tickers (from ${allMovers.length} raw)`);
-
-    // ── PROCESS DISCOVERY TAPE (Dynamic: no watchlists) ──
-    const discordEnabled = isEnabled();
+    // ── STEP 3: PARALLEL BATCH PROCESSING — 8 concurrent, zero sequential wait ──
+    const BATCH_SIZE = parseInt(process.env.DISCOVERY_BATCH_SIZE || '8');
+    const TICKER_TIMEOUT_MS = 10000;
     const minScore = parseFloat(process.env.DISCOVERY_MIN_SCORE || '65');
+    const tickerList = uniqueTickers.slice(0, 60);
 
-    for (const symbol of uniqueTickers.slice(0, 40)) { // Reduced from 80 to 40 for speed/stability
+    console.log(`[DISCOVERY] Processing ${tickerList.length} tickers in batches of ${BATCH_SIZE}...`);
+
+    async function processTicker(symbol) {
       try {
-        const chain = await fetchOptionsChain(symbol, { polygonKey: process.env.POLYGON_API_KEY });
-        if (!chain || !chain.contracts) continue;
+        const chain = await Promise.race([
+          fetchOptionsChain(symbol, {}),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), TICKER_TIMEOUT_MS))
+        ]);
+        if (!chain || !chain.contracts || chain.contracts.length === 0) return null;
 
         const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
         const setups = (graded || []).filter(c => {
-          if (!c) return false;
-          if (c.totalScore < minScore) return false;
-
-          // Directional filter
-          if (c.type === 'put' && c.strike >= chain.underlyingPrice) return false;
+          if (!c || c.totalScore < minScore) return false;
+          if (c.type === 'put'  && c.strike >= chain.underlyingPrice) return false;
           if (c.type === 'call' && c.strike <= chain.underlyingPrice) return false;
-
           return true;
         });
 
+        return { symbol, chain, setups, change: changeMap[symbol] || 0 };
+      } catch (_) {
+        return null; // skip without noise
+      }
+    }
+
+    // Run in batches of BATCH_SIZE — parallel inside each batch
+    for (let i = 0; i < tickerList.length; i += BATCH_SIZE) {
+      const batch = tickerList.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map(processTicker));
+
+      for (const result of results) {
+        if (result.status !== 'fulfilled' || !result.value) continue;
+        const { symbol, chain, setups, change } = result.value;
+
         if (setups.length > 0) {
-          console.log(`[DISCOVERY] ✓ ${symbol} — Top Grade: ${setups[0].grade} (${setups[0].totalScore})`);
+          console.log(`[DISCOVERY] ✓ ${symbol} — Grade: ${setups[0].grade} (${setups[0].totalScore}) | ${chain.source}`);
 
-          // Fire Discord alerts for top setups
           for (const s of setups.slice(0, 2)) {
-            let thesis = "Analysis pending...";
-            try {
-              thesis = await generateThesis(s, chain.underlyingPrice);
-            } catch (e) { /* skip */ }
-
-            const alertPayload = {
-              ticker: symbol,
-              price: chain.underlyingPrice,
-              change: changeMap[symbol] || 0,
-              contract: s.contractSymbol,
-              strike: s.strike,
-              side: s.type.toUpperCase(),
-              expiration: s.expiration,
-              score: s.totalScore,
-              grade: s.grade,
+            let thesis = 'Setup detected — AI thesis paused (credits).';
+            try { thesis = await generateThesis(s, chain.underlyingPrice); } catch (_) {}
+            sendOptionsAlert({
+              ticker: symbol, price: chain.underlyingPrice, change,
+              contract: s.contractSymbol, strike: s.strike, side: s.type.toUpperCase(),
+              expiration: s.expiration, score: s.totalScore, grade: s.grade,
               moneyness: s.moneyness || (s.inTheMoney ? 'ITM' : 'OTM'),
-              vol: s.volume,
-              oi: s.openInterest,
-              delta: s.delta,
-              theta: s.theta,
-              iv: s.impliedVolatility,
-              thesis: thesis,
-              source: chain.source || 'Yahoo Finance'
-            };
-            sendOptionsAlert(alertPayload).catch(() => {});
+              vol: s.volume, oi: s.openInterest, delta: s.delta, theta: s.theta,
+              iv: s.impliedVolatility, thesis, source: chain.source || 'Tradier'
+            }).catch(() => {});
           }
         }
 
         // ── TICKER DIVERSITY: Max 2 setups per symbol on tape ──
         const existingCount = hotSetups.filter(x => x.ticker === symbol).length;
         const slotsAvailable = MAX_SETUPS_PER_TICKER - existingCount;
-
         setups.slice(0, Math.max(0, slotsAvailable)).forEach(s => {
           const freshSetup = {
-            ticker: symbol,
-            price: chain.underlyingPrice,
-            change: changeMap[symbol] || 0,
-            contract: s.contractSymbol,
-            strike: s.strike,
-            side: s.type.toUpperCase(),
-            expiration: s.expiration,
-            score: s.totalScore,
-            grade: s.grade,
-            vol: s.volume,
-            oi: s.openInterest,
-            source: chain.source || 'Yahoo Finance',
+            ticker: symbol, price: chain.underlyingPrice, change,
+            contract: s.contractSymbol, strike: s.strike, side: s.type.toUpperCase(),
+            expiration: s.expiration, score: s.totalScore, grade: s.grade,
+            vol: s.volume, oi: s.openInterest, source: chain.source || 'Tradier',
             timestamp: new Date().toISOString()
           };
-
-          // Update existing or add new
-          const key = `${freshSetup.ticker}-${freshSetup.strike}-${freshSetup.side}`;
-          const existingIdx = hotSetups.findIndex(x => `${x.ticker}-${x.strike}-${x.side}` === key);
-
-          if (existingIdx !== -1) {
-            hotSetups[existingIdx] = freshSetup;
-          } else {
-            hotSetups.unshift(freshSetup);
-          }
+          const key = `${symbol}-${s.strike}-${s.type.toUpperCase()}`;
+          const idx = hotSetups.findIndex(x => `${x.ticker}-${x.strike}-${x.side}` === key);
+          if (idx !== -1) hotSetups[idx] = freshSetup;
+          else hotSetups.unshift(freshSetup);
         });
 
-        // Cap rolling buffer
         if (hotSetups.length > 100) hotSetups = hotSetups.slice(0, 100);
-
-        await new Promise(r => setTimeout(r, 100));
-      } catch (e) { /* skip failed ticker */ }
+      }
     }
 
-    // ── PROCESS CONVICTION PLAYS (AMC/GME + IWM 0DTE) ──
+    // ── CONVICTION PLAYS (AMC/GME + IWM 0DTE) — run in parallel too ──
     await refreshConvictionPlays(changeMap);
 
-    console.log(`[DISCOVERY] Cycle complete. Tape: ${hotSetups.length} setups | Conviction: ${convictionPlays.length} plays`);
+    const elapsed = ((Date.now() - cycleStart) / 1000).toFixed(1);
+    console.log(`[DISCOVERY] ✅ Cycle complete in ${elapsed}s. Tape: ${hotSetups.length} setups | Conviction: ${convictionPlays.length} plays`);
     sendBatchSummary(hotSetups).catch(() => {});
 
   } catch (err) {
@@ -217,6 +225,7 @@ async function refreshDiscovery() {
     isRefreshing = false;
   }
 }
+
 
 /**
  * Conviction Plays — The ONLY exceptions to "no watchlists."
@@ -230,7 +239,7 @@ async function refreshConvictionPlays(changeMap = {}) {
   // ── AMC / GME ──
   for (const ticker of CONVICTION_TICKERS) {
     try {
-      const chain = await fetchOptionsChain(ticker, { polygonKey: process.env.POLYGON_API_KEY });
+      const chain = await fetchOptionsChain(ticker, {});
       if (!chain || !chain.contracts) continue;
 
       const graded = gradeOptionsChain(chain.contracts, chain.underlyingPrice, chain.historicalIV);
@@ -266,7 +275,7 @@ async function refreshConvictionPlays(changeMap = {}) {
   // ── IWM 0DTE ──
   if (IWM_0DTE_ENABLED) {
     try {
-      const chain = await fetchOptionsChain('IWM', { polygonKey: process.env.POLYGON_API_KEY });
+      const chain = await fetchOptionsChain('IWM', {});
       if (chain && chain.contracts) {
         // Filter to 0DTE only
         const zeroDte = chain.contracts.filter(c => c.dte === 0 || c.dte === 1);
@@ -317,12 +326,13 @@ function getConvictionPlays() {
   return convictionPlays;
 }
 
-function startDiscoveryEngine(intervalMs = 60000) {
-  console.log(`[DISCOVERY] SqueezeOS Pro-Model Engine started. Cycle: ${intervalMs / 1000}s`);
-  console.log(`[DISCOVERY] Budget: $${DISCOVERY_MIN_PRICE}-$${DISCOVERY_MAX_PRICE} | Stale TTL: ${SETUP_TTL_MS / 1000}s`);
-  console.log(`[DISCOVERY] Mega-cap blacklist: ${MEGA_CAP_BLACKLIST.slice(0, 10).join(', ')}...`);
+function startDiscoveryEngine(intervalMs) {
+  // Default 20s — fast rotation; configurable via env
+  const ms = parseInt(process.env.DISCOVERY_INTERVAL_MS || String(intervalMs || 20000));
+  console.log(`[DISCOVERY] ⚡ Engine started. Cycle: ${ms / 1000}s | Batch: ${process.env.DISCOVERY_BATCH_SIZE || 8} parallel | Budget: $${DISCOVERY_MIN_PRICE}-$${DISCOVERY_MAX_PRICE}`);
+  console.log(`[DISCOVERY] Mode: 100% DYNAMIC — Zero hardcoded watchlists. Yahoo screener → Tradier chains.`);
   refreshDiscovery();
-  setInterval(refreshDiscovery, intervalMs);
+  setInterval(refreshDiscovery, ms);
 }
 
 

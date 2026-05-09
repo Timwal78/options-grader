@@ -1,0 +1,11 @@
+ACT AS: LifeSheets System Architect.
+OBJECTIVE: Build 10 Google Sheets as defined in README.md.
+
+INSTRUCTIONS:
+1. DESIGN: Apply Jet-Black background to all cells. Use 10pt 'Roboto' font in Neon Green. Headers in Aqua.
+2. FUNCTION: Create a 'Settings' tab in every sheet with a 'BYOK' cell for API Keys.
+3. SCRIPTS: Generate the Google Apps Script to fetch responses from the user-provided API key. Use the 'SOP Specialist' system role.
+4. VIRAL TRIGGER: Add a menu item titled "UNLOCK BEASTMODE" that prompts the user to share a pre-filled post on X/Reddit before revealing the 'Pro' tab.
+5. FOOTER: Hard-code "© 2026 Timothy Walton" into row 100 of every sheet.
+
+EXECUTION: Process each of the 10 modules listed in the manifest and output the .xlsx or .gs code for each.

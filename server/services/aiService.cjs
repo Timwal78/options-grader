@@ -14,9 +14,17 @@ const anthropic = new Anthropic({
  * @param {Object} contract - The graded contract object
  * @param {number} underlyingPrice - Current stock price
  */
+// Circuit breaker — flips to false after first credit exhaustion error
+let _aiEnabled = true;
+
+/**
+ * Generate a trade thesis for a specific contract using Claude
+ * Self-disables if Anthropic credits are exhausted to avoid cycle spam.
+ */
 async function generateThesis(contract, underlyingPrice) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-     return "Intelligence offline. Manual audit required.";
+  // Circuit breaker: stop hammering after credits run out
+  if (!_aiEnabled || !process.env.ANTHROPIC_API_KEY) {
+    return _rulesThesis(contract, underlyingPrice);
   }
 
   const prompt = `
@@ -39,16 +47,36 @@ async function generateThesis(contract, underlyingPrice) {
 
   try {
     const message = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5-20250929",
+      model: process.env.CLAUDE_MODEL || "claude-3-haiku-20240307",
       max_tokens: 200,
       messages: [{ role: "user", content: prompt }],
     });
-
     return message.content[0].text.trim();
   } catch (error) {
-    console.error('[AI Thesis Error]', error.message);
-    return "AI reasoning unavailable due to connection error.";
+    // Detect credit exhaustion — disable for the session
+    if (error.message?.includes('credit balance') || error.status === 402) {
+      _aiEnabled = false;
+      console.warn('[AI Thesis] Credits exhausted — switching to rules-based thesis. Re-enable by adding Anthropic credits.');
+    }
+    return _rulesThesis(contract, underlyingPrice);
   }
 }
+
+/**
+ * Rules-based thesis fallback — zero API cost, always available.
+ */
+function _rulesThesis(contract, underlyingPrice) {
+  const side = (contract.type || '').toUpperCase();
+  const dte  = contract.dte || 0;
+  const grade = contract.grade || 'N/A';
+  const iv   = ((contract.impliedVolatility || 0) * 100).toFixed(0);
+  const delta = Math.abs(contract.delta || 0).toFixed(2);
+  const moneyness = contract.strike > underlyingPrice ? 'OTM' : 'ITM';
+  const timeTag = dte <= 2 ? '0DTE scalp' : dte <= 7 ? 'weekly play' : 'swing trade';
+  return `Grade ${grade} ${side} ${moneyness} — ${timeTag}. Delta ${delta}, IV ${iv}%, DTE ${dte}. ` +
+         `${side === 'CALL' ? 'Bullish momentum structure' : 'Bearish pressure confirmed'}. ` +
+         `Score-driven entry; manage at 50% gain or 30% loss.`;
+}
+
 
 module.exports = { generateThesis };
