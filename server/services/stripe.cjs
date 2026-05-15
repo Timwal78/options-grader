@@ -32,7 +32,18 @@ const ADMIN_IDS = new Set([
  * Admin IDs always return 'elite' — owner never gets charged.
  */
 function getTier(userId) {
-  return 'elite';
+  if (!userId) return 'free';
+  if (ADMIN_IDS.has(userId.toLowerCase())) return 'elite';
+  
+  try {
+    if (fs.existsSync(SUBS_FILE)) {
+      const subs = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
+      return subs[userId] || 'free';
+    }
+  } catch (e) {
+    console.error('[STRIPE] Tier lookup error:', e.message);
+  }
+  return 'free';
 }
 
 /**
