@@ -8,5 +8,10 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
+
+# Drop to non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+USER appuser
+
 EXPOSE 3001
 CMD ["node", "server/index.cjs"]
