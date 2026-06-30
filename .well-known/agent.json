@@ -1,0 +1,13 @@
+{
+  "name": "options-grader",
+  "description": "AI-powered options contract grading and scoring system",
+  "owner": "ScriptMasterLabs",
+  "github": "https://github.com/timwal78/options-grader",
+  "contact": "scriptmasterlabs@gmail.com",
+  "sovereign": {
+    "noMockData": true,
+    "liveDataOnly": true,
+    "noTelemetry": true,
+    "enforcedBy": ".github/workflows/sovereign-data-check.yml"
+  }
+}
